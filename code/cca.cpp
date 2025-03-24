@@ -199,10 +199,12 @@ int main(int argc, char* argv[])
 	times(&start);
 
 	if (build_instance(argv[1])==0)// 构建实例
-	{
+	{    
+
 		cout<<"Invalid filename: "<< argv[1]<<endl;
 		return -1;
 	}
+    init_critical_pairs();
 
     sscanf(argv[2],"%d",&seed);
     

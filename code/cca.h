@@ -38,6 +38,18 @@
 #include <deque>
 #include <vector>
 #include <utility>
+#include change_deque.cpp
+
+// 假设 LCQEntry 结构体定义如下：
+struct LCQEntry {
+    int var1;      // 保证 var1 < var2
+    int var2;
+    int pairScore; // 当前计算的分数 N(F, var1, var2, s)
+};
+
+// 全局 LCQ 列表
+vector<LCQEntry> LCQ;
+
 // 全局变量var_change[i]表示变量 i 的邻域内最近两次改变的变量队列，长度为2（只记录近两次的）
 std::vector<std::deque<int>> var_change;
 // 需要每次遍历flipvar及其邻居和二次邻居的var_change，用于判断受到影响的是否为unqualified_pairs
@@ -242,7 +254,8 @@ void flip_1(int flipvar)
 	lit* clause_c;
 	// 在分数没更新时，保存flipvar的原始得分
 	int org_flipvar_score = score[flipvar];
-	
+	int orig_flipvar_score = orig_score[flipvar];
+
 	//update related clauses and neighbor vars 遍历flipvar所在的子句，q是flipvar的所有文字，c是文字对应的子句编号
 	for(lit *q = var_lit[flipvar]; (c=q->clause_num)>=0; q++)
 	{
@@ -253,18 +266,22 @@ void flip_1(int flipvar)
 		{
 			++sat_count[c];
 			
-			if (sat_count[c] == 2) //sat_count from 1 to 2
+			if (sat_count[c] == 2){ //sat_count from 1 to 2
 				// 增加满足子句的另一个变量的得分
 				//∵之前翻转另一变量,子句从满足变成不满足,因此子句对另一变量的分数贡献为-clause_weight[c]
 				// 这儿要修改成不加权和加权的两种
 				score[sat_var[c]] += clause_weight[c];
-			else if (sat_count[c] == 1) // sat_count from 0 to 1
+                orig_score[sat_var[c]] += 1; // 使用固定权重1
+			}else if (sat_count[c] == 1) // sat_count from 0 to 1
 			{
 				sat_var[c] = flipvar;//record the only true lit's var
 				// flipvar翻转后子句才满足
 				// ∵子句其他变量翻转后sat_count由增加变不增加，∴得分减少
 				// ∵flipvar再翻转后sat_count-1，，∴得分也减少
-				for(lit* p=clause_c; (v=p->var_num)!=0; p++) score[v] -= clause_weight[c];
+                for(lit* p = clause_c; (v = p->var_num) != 0; p++) {
+                    score[v] -= clause_weight[c];
+                    orig_score[v] -= 1; // 固定权重1
+                }
                 // 将子句标记为满足，并更新相关变量
 				sat(c);
 			}
@@ -284,6 +301,7 @@ void flip_1(int flipvar)
 					{
 						
 						score[v] -= clause_weight[c];
+						orig_score[v] -= 1; // 固定权重1
 						sat_var[c] = v;// 目前唯一满足子句c的变量是v
 						break;
 					}
@@ -292,7 +310,10 @@ void flip_1(int flipvar)
 			else if (sat_count[c] == 0) //sat_count from 1 to 0
 			{
 				// 此时子句c不满足，任意翻转c包含的变量均可使其满足，得分+
-				for(lit* p=clause_c; (v=p->var_num)!=0; p++) score[v] += clause_weight[c];
+                for(lit* p = clause_c; (v = p->var_num) != 0; p++) {
+                    score[v] += clause_weight[c];
+                    orig_score[v] += 1; // 固定权重1
+                }
 				// 将子句标记为不满足，并更新相关变量
 				unsat(c);
 			}//end else if
@@ -301,7 +322,7 @@ void flip_1(int flipvar)
 	}
 	// flipvar翻转后，分数为翻转前的相反数，邻居分数已经在上面更新过了
 	score[flipvar] = -org_flipvar_score;
-	
+	orig_score[flipvar] = -orig_flipvar_score;
 	/*update CCD */
 	int index;
 	// 因为flipvar刚翻转过，conf_change设置为unflippable
@@ -396,237 +417,375 @@ inline void sat(int clause)
 	}
 }
 
+// 假设全局 ChangeQueue 对象已经定义为 globalChangeQueue
+extern ChangeQueue globalChangeQueue;
+// 占位函数：暂时简单返回 true，实际应根据论文条件进行判断
+bool is_qualified_pairs(int xi, int xj) {
+    // 获取 xi 和 xj 的最近变化记录
+    std::deque<ChangeEvent> changes_xi = globalChangeQueue.getRecentChanges(xi);
+    std::deque<ChangeEvent> changes_xj = globalChangeQueue.getRecentChanges(xj);
+    
+    // 将变化记录中的变量提取到集合中，忽略顺序和重复
+    std::unordered_set<int> set_xi;
+    std::unordered_set<int> set_xj;
+    
+    for (const auto& event : changes_xi) {
+        set_xi.insert(event.variable);
+    }
+    for (const auto& event : changes_xj) {
+        set_xj.insert(event.variable);
+    }
+    
+    // 只有当两个集合都恰好包含两个不同的元素，并且完全相等时返回 false
+    if (set_xi.size() == 2 && set_xj.size() == 2) {
+        if (set_xi == set_xj)
+            return false;
+    }
+    // 否则返回 true
+    return true;
+}
+
+// 占位函数：计算变量对 (xi, xj) 的分数 N(F, xi, xj, s)
+// 此处假设 N_score[v] 已经记录了单个变量 v 的得分
+// 并且使用前面实现的 computePairDeltaOverlap(xi, xj) 计算 Delta_overlap
+int computePairScore(int xi, int xj) {
+    // 假设 N_score 是一个全局数组，其中 N_score[v] 表示 N(F, v, s)
+  
+    int delta_overlap = computePairDeltaOverlap(xi, xj);
+    return orig_score[xi] + orig_score[xj] + delta_overlap;
+}
+
+bool clauseSatisfiedWithFlips(int c, int flipXi, int flipXj) {
+    // 遍历子句 c 中的每个文字
+    for (int j = 0; j < clause_lit_count[c]; j++) {
+        int var = clause_lit[c][j].var_num;
+        if (var == 0) break;
+        int sense = clause_lit[c][j].sense;
+        // 取当前变量的值
+        int val = cur_soln[var];
+        // 如果 var 等于 flipXi，则模拟翻转该变量
+        if (var == flipXi)
+            val = 1 - val;
+        // 如果 var 等于 flipXj，则模拟翻转该变量
+        if (var == flipXj)
+            val = 1 - val;
+        // 对于文字：若 sense==1，则文字为真要求变量值==1；若 sense==0，则要求变量值==0
+        bool literalTrue = (sense == 1 ? (val == 1) : (val == 0));
+        if (literalTrue)
+            return true;  // 子句中只要有一个文字为真，则子句满足
+    }
+    return false;
+}
+
+// 下面函数实现伪代码计算 Delta_overlap
+// 计算变量对 (xi, xj) 对应的 Delta_overlap，依赖于 LCC(xi,xj)
+int computePairDeltaOverlap(int xi, int xj) {
+    int Delta_overlap = 0;
+    // 确保 xi < xj
+    int a = min(xi, xj), b = max(xi, xj);
+    long long key = ((long long)a) * MAX_VARS + b;
+    // 如果 LCC 中没有该对，则返回 0
+    if (LCC.find(key) == LCC.end())
+        return 0;
+    vector<int>& clauseList = LCC[key];
+    // 遍历 LCC(xi, xj) 中所有子句 C_t
+    for (int c : clauseList) {
+        // old_satisfied：在当前赋值 s 下，子句 c 是否满足（1或0）
+        int old_satisfied = clauseSatisfiedWithFlips(c, -1, -1) ? 1 : 0;
+        // new_satisfied_ij：在同时翻转 xi 和 xj 后，子句 c 是否满足
+        int new_satisfied_ij = clauseSatisfiedWithFlips(c, xi, xj) ? 1 : 0;
+        int change_for_ij = new_satisfied_ij - old_satisfied;
+        // onlyXi_satisfied：只翻转 xi 后子句 c 是否满足
+        int onlyXi_satisfied = clauseSatisfiedWithFlips(c, xi, -1) ? 1 : 0;
+        int change_for_i = onlyXi_satisfied - old_satisfied;
+        // onlyXj_satisfied：只翻转 xj 后子句 c 是否满足
+        int onlyXj_satisfied = clauseSatisfiedWithFlips(c, -1, xj) ? 1 : 0;
+        int change_for_j = onlyXj_satisfied - old_satisfied;
+        int overlap_change_for_C = change_for_ij - change_for_i - change_for_j;
+        Delta_overlap += overlap_change_for_C;
+    }
+    return Delta_overlap;
+}
+
+// 初始化 LCQ：遍历所有 critical 变量（isCriticalVar[v] 为 true 且 LCP[v] 非空），更新 LCQ
+void init_LCQ() {
+    LCQ.clear();
+    // 假设变量编号从 1 到 num_vars
+    for (int v = 1; v <= num_vars; v++) {
+        if (isCriticalVar[v] && !LCP[v].empty()) {
+            update_LCQ_for_variable(v);
+        }
+    }
+}
+
+void update_LCQ_for_variable(int v) {
+    // 假设 LCP[v] 已经存储了该 critical 变量相关的所有 pair
+    for (size_t i = 0; i < LCP[v].size(); i++) {
+        int xi = LCP[v][i].first;
+        int xj = LCP[v][i].second;
+        // 保证 xi < xj
+        int a = min(xi, xj), b = max(xi, xj);
+        int pairScore = computePairScore(a, b); // 调用之前定义的函数
+        // 判断是否满足 u-q-flippable 条件
+        if (is_qualified_pairs(a, b)) {
+            // 在 LCQ 中查找是否已有此 pair
+            bool found = false;
+            for (size_t k = 0; k < LCQ.size(); k++) {
+                if (LCQ[k].var1 == a && LCQ[k].var2 == b) {
+                    LCQ[k].pairScore = pairScore;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                LCQEntry entry;
+                entry.var1 = a;
+                entry.var2 = b;
+                entry.pairScore = pairScore;
+                LCQ.push_back(entry);
+            }
+        } else {
+            // 如果不满足条件，则从 LCQ 中移除该 pair（如果存在）
+            for (auto it = LCQ.begin(); it != LCQ.end(); ) {
+                if (it->var1 == a && it->var2 == b)
+                    it = LCQ.erase(it);
+                else
+                    ++it;
+            }
+        }
+    }
+}
 //initiation of the algorithm
-void init()
-{
-	int 		v,c;
-	int			i,j;
-	int			clause;
+// void init()
+// {
+// 	int 		v,c;
+// 	int			i,j;
+// 	int			clause;
 	
-	//Initialize edge weights 初始化子句权重为1
-	for (c = 0; c<num_clauses; c++)
-		clause_weight[c] = 1;
+// 	//Initialize edge weights 初始化子句权重为1
+// 	for (c = 0; c<num_clauses; c++)
+// 		clause_weight[c] = 1;
 
-	//init unsat_stack
-	// 初始化不满足子句栈和不满足变量栈
-	unsat_stack_fill_pointer = 0;
-	unsatvar_stack_fill_pointer = 0;
+// 	//init unsat_stack
+// 	// 初始化不满足子句栈和不满足变量栈
+// 	unsat_stack_fill_pointer = 0;
+// 	unsatvar_stack_fill_pointer = 0;
 
-	//init solution
-	for (v = 1; v <= num_vars; v++) {
+// 	//init solution
+// 	for (v = 1; v <= num_vars; v++) {
         
-        if(fix[v]==0){
-            if(rand()%2==1) cur_soln[v] = 1;
-            else cur_soln[v] = 0;
+//         if(fix[v]==0){
+//             if(rand()%2==1) cur_soln[v] = 1;
+//             else cur_soln[v] = 0;
 
-			time_stamp[v] = 0;
-			conf_change[v] = 1;
-			unsat_app_count[v] = 0;
+// 			time_stamp[v] = 0;
+// 			conf_change[v] = 1;
+// 			unsat_app_count[v] = 0;
 		
-			//pscore[v] = 0;
-		}
+// 			//pscore[v] = 0;
+// 		}
 		
-	}
+// 	}
 
-	/* figure out sat_count, and init unsat_stack */
-	for (c=0; c<num_clauses; ++c) 
-	{
-		if(clause_delete[c]==1) continue;
+// 	/* figure out sat_count, and init unsat_stack */
+// 	for (c=0; c<num_clauses; ++c) 
+// 	{
+// 		if(clause_delete[c]==1) continue;
 		
-		sat_count[c] = 0;
+// 		sat_count[c] = 0;
 		
-		for(j=0; j<clause_lit_count[c]; ++j)
-		{
-			if (cur_soln[clause_lit[c][j].var_num] == clause_lit[c][j].sense)
-			{
-				sat_count[c]++;
-				sat_var[c] = clause_lit[c][j].var_num;	
-			}
-		}
+// 		for(j=0; j<clause_lit_count[c]; ++j)
+// 		{
+// 			if (cur_soln[clause_lit[c][j].var_num] == clause_lit[c][j].sense)
+// 			{
+// 				sat_count[c]++;
+// 				sat_var[c] = clause_lit[c][j].var_num;	
+// 			}
+// 		}
 
-		if (sat_count[c] == 0) 
-			unsat(c);
-	}
+// 		if (sat_count[c] == 0) 
+// 			unsat(c);
+// 	}
 
-	// figure out var score 可以作为一个函数
-	int lit_count;
-	for (v=1; v<=num_vars; v++) 
-	{
-		// 如果变量被固定，则将其得分设置为一个极小值
-		if(fix[v]==1) 
-		{
-			score[v] = -100000;
-			continue;
-		}
+// 	// figure out var score 可以作为一个函数
+// 	int lit_count;
+// 	for (v=1; v<=num_vars; v++) 
+// 	{
+// 		// 如果变量被固定，则将其得分设置为一个极小值
+// 		if(fix[v]==1) 
+// 		{
+// 			score[v] = -100000;
+// 			continue;
+// 		}
 		
-		score[v] = 0;
-		// 获取变量所在的所有文字数量
-		lit_count = var_lit_count[v];
-		// 遍历变量的所有文字，计算得分
-		for(i=0; i<lit_count; ++i)
-		{	// 获取该文字所在子句的编号
-			c = var_lit[v][i].clause_num;
-			if (sat_count[c]==0) score[v]++; // 子句不满足，则flip该变量后，子句满足，因此得分+1
-			else if (sat_count[c]==1 && var_lit[v][i].sense==cur_soln[v]) score[v]--;// 子句仅由当前变量满足，则得分减1
-		}
-	}
+// 		score[v] = 0;
+// 		// 获取变量所在的所有文字数量
+// 		lit_count = var_lit_count[v];
+// 		// 遍历变量的所有文字，计算得分
+// 		for(i=0; i<lit_count; ++i)
+// 		{	// 获取该文字所在子句的编号
+// 			c = var_lit[v][i].clause_num;
+// 			if (sat_count[c]==0) score[v]++; // 子句不满足，则flip该变量后，子句满足，因此得分+1
+// 			else if (sat_count[c]==1 && var_lit[v][i].sense==cur_soln[v]) score[v]--;// 子句仅由当前变量满足，则得分减1
+// 		}
+// 	}
 	
-	/*
-	int flag;
-	//compute pscore and record sat_var and sat_var2 for 2sat clauses
-	for (c=0; c<num_clauses; ++c) 
-	{
-		if(clause_delete[c]==1) continue;
+// 	/*
+// 	int flag;
+// 	//compute pscore and record sat_var and sat_var2 for 2sat clauses
+// 	for (c=0; c<num_clauses; ++c) 
+// 	{
+// 		if(clause_delete[c]==1) continue;
 		
-		if (sat_count[c]==1)
-		{
-			for(j=0;j<clause_lit_count[c];++j)
-			{
-				v=clause_lit[c][j].var_num;
-				if(v!=sat_var[c])pscore[v]++;
-			}
-		}
-		else if(sat_count[c]==2)
-		{
-			flag=0;
-			for(j=0;j<clause_lit_count[c];++j)
-			{
-				v=clause_lit[c][j].var_num;
-				if(clause_lit[c][j].sense == cur_soln[v])
-				{
-					pscore[v]--;
-					if(flag==0){sat_var[c] = v; flag=1;}
-					else	{sat_var2[c] = v; break;}
-				}
-			}
+// 		if (sat_count[c]==1)
+// 		{
+// 			for(j=0;j<clause_lit_count[c];++j)
+// 			{
+// 				v=clause_lit[c][j].var_num;
+// 				if(v!=sat_var[c])pscore[v]++;
+// 			}
+// 		}
+// 		else if(sat_count[c]==2)
+// 		{
+// 			flag=0;
+// 			for(j=0;j<clause_lit_count[c];++j)
+// 			{
+// 				v=clause_lit[c][j].var_num;
+// 				if(clause_lit[c][j].sense == cur_soln[v])
+// 				{
+// 					pscore[v]--;
+// 					if(flag==0){sat_var[c] = v; flag=1;}
+// 					else	{sat_var2[c] = v; break;}
+// 				}
+// 			}
 		
-		}
-	}
-	*/
+// 		}
+// 	}
+// 	*/
 	
 		
-	//init goodvars stack
-	goodvar_stack_fill_pointer = 0;
-	for (v=1; v<=num_vars; v++) 
-	{
-		if(fix[v]==1)  continue;
-		// 如果变量得分大于 0，则将其加入 goodvar_stack
-		if(score[v]>0)// && conf_change[v]==1)
-		{
-			already_in_goodvar_stack[v] = 1;
-			push(v,goodvar_stack);
+// 	//init goodvars stack
+// 	goodvar_stack_fill_pointer = 0;
+// 	for (v=1; v<=num_vars; v++) 
+// 	{
+// 		if(fix[v]==1)  continue;
+// 		// 如果变量得分大于 0，则将其加入 goodvar_stack
+// 		if(score[v]>0)// && conf_change[v]==1)
+// 		{
+// 			already_in_goodvar_stack[v] = 1;
+// 			push(v,goodvar_stack);
 			
-		}// 否则标记为未在 goodvar_stack 中
-		else already_in_goodvar_stack[v] = 0;
-	}
+// 		}// 否则标记为未在 goodvar_stack 中
+// 		else already_in_goodvar_stack[v] = 0;
+// 	}
 	
-	//setting for the virtual var 0 时戳初始化为0
-	time_stamp[0]=0;
-	//pscore[0]=0;
-}
+// 	//setting for the virtual var 0 时戳初始化为0
+// 	time_stamp[0]=0;
+// 	//pscore[0]=0;
+// }
 
-void flip(int flipvar)
-{
-	cur_soln[flipvar] = 1 - cur_soln[flipvar]; // 翻转 flipvar 的值
+// void flip(int flipvar)
+// {
+// 	cur_soln[flipvar] = 1 - cur_soln[flipvar]; // 翻转 flipvar 的值
 	
-	// int i,j; 没用到
-	int v,c;
+// 	// int i,j; 没用到
+// 	int v,c;
 
-	lit* clause_c;
-	// 在分数没更新时，保存flipvar的原始得分
-	int org_flipvar_score = score[flipvar];
+// 	lit* clause_c;
+// 	// 在分数没更新时，保存flipvar的原始得分
+// 	int org_flipvar_score = score[flipvar];
 	
-	//update related clauses and neighbor vars 遍历flipvar所在的子句，q是flipvar的所有文字，c是文字对应的子句编号
-	for(lit *q = var_lit[flipvar]; (c=q->clause_num)>=0; q++)
-	{
-		clause_c = clause_lit[c];// 获取当前子句的文字列表
-		// 如果翻转后 flipvar 的当前值==子句中的文字真值
-		// 如，q->sense=0时，变量1->0，则文字假变真；q->sense=1时，变量0->1，则文字假变真。else则子句满足数-1
-		if(cur_soln[flipvar] == q->sense)
-		{
-			++sat_count[c];
+// 	//update related clauses and neighbor vars 遍历flipvar所在的子句，q是flipvar的所有文字，c是文字对应的子句编号
+// 	for(lit *q = var_lit[flipvar]; (c=q->clause_num)>=0; q++)
+// 	{
+// 		clause_c = clause_lit[c];// 获取当前子句的文字列表
+// 		// 如果翻转后 flipvar 的当前值==子句中的文字真值
+// 		// 如，q->sense=0时，变量1->0，则文字假变真；q->sense=1时，变量0->1，则文字假变真。else则子句满足数-1
+// 		if(cur_soln[flipvar] == q->sense)
+// 		{
+// 			++sat_count[c];
 			
-			if (sat_count[c] == 2) //sat_count from 1 to 2
-				// 增加满足子句的另一个变量的得分
-				//∵之前翻转另一变量,子句从满足变成不满足,因此子句对另一变量的分数贡献为-clause_weight[c]
-				// 这儿要修改成不加权和加权的两种
-				score[sat_var[c]] += clause_weight[c];
-			else if (sat_count[c] == 1) // sat_count from 0 to 1
-			{
-				sat_var[c] = flipvar;//record the only true lit's var
-				// flipvar翻转后子句才满足
-				// ∵子句其他变量翻转后sat_count由增加变不增加，∴得分减少
-				// ∵flipvar再翻转后sat_count-1，，∴得分也减少
-				for(lit* p=clause_c; (v=p->var_num)!=0; p++) score[v] -= clause_weight[c];
-                // 将子句标记为满足，并更新相关变量
-				sat(c);
-			}
-		}
-		// 如果翻转后 flipvar 的当前值！=子句中的文字真值
-		// 如，q->sense=0时，变量0->1，则文字真变假；q->sense=1时，变量1->0，则文字真变假。else则子句满足数-1
-		else // cur_soln[flipvar] != cur_lit.sense
-		{
-			--sat_count[c];
-			if (sat_count[c] == 1) //sat_count from 2 to 1
-			{
-				for(lit* p=clause_c; (v=p->var_num)!=0; p++) 
-				{
-					// q->sense=0时,cur_soln[v]=0,则当前文字为真，翻转v，sat-1；
-					// q->sense=1时,cur_soln[v]=1,则当前文字为真，翻转v，sat-1；
-					if(p->sense == cur_soln[v])
-					{
+// 			if (sat_count[c] == 2) //sat_count from 1 to 2
+// 				// 增加满足子句的另一个变量的得分
+// 				//∵之前翻转另一变量,子句从满足变成不满足,因此子句对另一变量的分数贡献为-clause_weight[c]
+// 				// 这儿要修改成不加权和加权的两种
+// 				score[sat_var[c]] += clause_weight[c];
+// 			else if (sat_count[c] == 1) // sat_count from 0 to 1
+// 			{
+// 				sat_var[c] = flipvar;//record the only true lit's var
+// 				// flipvar翻转后子句才满足
+// 				// ∵子句其他变量翻转后sat_count由增加变不增加，∴得分减少
+// 				// ∵flipvar再翻转后sat_count-1，，∴得分也减少
+// 				for(lit* p=clause_c; (v=p->var_num)!=0; p++) score[v] -= clause_weight[c];
+//                 // 将子句标记为满足，并更新相关变量
+// 				sat(c);
+// 			}
+// 		}
+// 		// 如果翻转后 flipvar 的当前值！=子句中的文字真值
+// 		// 如，q->sense=0时，变量0->1，则文字真变假；q->sense=1时，变量1->0，则文字真变假。else则子句满足数-1
+// 		else // cur_soln[flipvar] != cur_lit.sense
+// 		{
+// 			--sat_count[c];
+// 			if (sat_count[c] == 1) //sat_count from 2 to 1
+// 			{
+// 				for(lit* p=clause_c; (v=p->var_num)!=0; p++) 
+// 				{
+// 					// q->sense=0时,cur_soln[v]=0,则当前文字为真，翻转v，sat-1；
+// 					// q->sense=1时,cur_soln[v]=1,则当前文字为真，翻转v，sat-1；
+// 					if(p->sense == cur_soln[v])
+// 					{
 						
-						score[v] -= clause_weight[c];
-						sat_var[c] = v;// 目前唯一满足子句c的变量是v
-						break;
-					}
-				}
-			}
-			else if (sat_count[c] == 0) //sat_count from 1 to 0
-			{
-				// 此时子句c不满足，任意翻转c包含的变量均可使其满足，得分+
-				for(lit* p=clause_c; (v=p->var_num)!=0; p++) score[v] += clause_weight[c];
-				// 将子句标记为不满足，并更新相关变量
-				unsat(c);
-			}//end else if
+// 						score[v] -= clause_weight[c];
+// 						sat_var[c] = v;// 目前唯一满足子句c的变量是v
+// 						break;
+// 					}
+// 				}
+// 			}
+// 			else if (sat_count[c] == 0) //sat_count from 1 to 0
+// 			{
+// 				// 此时子句c不满足，任意翻转c包含的变量均可使其满足，得分+
+// 				for(lit* p=clause_c; (v=p->var_num)!=0; p++) score[v] += clause_weight[c];
+// 				// 将子句标记为不满足，并更新相关变量
+// 				unsat(c);
+// 			}//end else if
 			
-		}//end else
-	}
-	// flipvar翻转后，分数为翻转前的相反数，邻居分数已经在上面更新过了
-	score[flipvar] = -org_flipvar_score;
+// 		}//end else
+// 	}
+// 	// flipvar翻转后，分数为翻转前的相反数，邻居分数已经在上面更新过了
+// 	score[flipvar] = -org_flipvar_score;
 	
-	/*update CCD */
-	int index;
-	// 因为flipvar刚翻转过，conf_change设置为unflippable
-	conf_change[flipvar] = 0;
-	// flipvar翻转后，更新goodvar_stack中元素，选择1-step q-flippable变量
-	// 条件1：score>0；条件2：conf_change=1
-	//remove the vars no longer goodvar in goodvar stack 
-	for(index=goodvar_stack_fill_pointer-1; index>=0; index--)
-	{
-		v = goodvar_stack[index];
-		// 分数不满足移除，这里会把 flipvar 移除，因为其分数已被更新为负
-		if(score[v]<=0)
-		{
-			goodvar_stack[index] = pop(goodvar_stack);
-			already_in_goodvar_stack[v] = 0;
-		}	
-	}
+// 	/*update CCD */
+// 	int index;
+// 	// 因为flipvar刚翻转过，conf_change设置为unflippable
+// 	conf_change[flipvar] = 0;
+// 	// flipvar翻转后，更新goodvar_stack中元素，选择1-step q-flippable变量
+// 	// 条件1：score>0；条件2：conf_change=1
+// 	//remove the vars no longer goodvar in goodvar stack 
+// 	for(index=goodvar_stack_fill_pointer-1; index>=0; index--)
+// 	{
+// 		v = goodvar_stack[index];
+// 		// 分数不满足移除，这里会把 flipvar 移除，因为其分数已被更新为负
+// 		if(score[v]<=0)
+// 		{
+// 			goodvar_stack[index] = pop(goodvar_stack);
+// 			already_in_goodvar_stack[v] = 0;
+// 		}	
+// 	}
 
-	//update all flipvar's neighbor's conf_change to be 1, add goodvar
-	// 唯一使用了邻居关系的地方
-	int* p;
-	for(p=var_neighbor[flipvar]; (v=*p)!=0; p++)
-	{
-		conf_change[v] = 1;
-		// 分数大于0，且还未在goodvar_stack，则入栈
-		if(score[v]>0 && already_in_goodvar_stack[v] ==0)
-		{
-			push(v,goodvar_stack);
-			already_in_goodvar_stack[v] = 1;
-		}
-	}
-}
+// 	//update all flipvar's neighbor's conf_change to be 1, add goodvar
+// 	// 唯一使用了邻居关系的地方
+// 	int* p;
+// 	for(p=var_neighbor[flipvar]; (v=*p)!=0; p++)
+// 	{
+// 		conf_change[v] = 1;
+// 		// 分数大于0，且还未在goodvar_stack，则入栈
+// 		if(score[v]>0 && already_in_goodvar_stack[v] ==0)
+// 		{
+// 			push(v,goodvar_stack);
+// 			already_in_goodvar_stack[v] = 1;
+// 		}
+// 	}
+// }
 
-#endif
+// #endif
 
