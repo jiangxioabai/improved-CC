@@ -417,34 +417,6 @@ inline void sat(int clause)
 	}
 }
 
-// 假设全局 ChangeQueue 对象已经定义为 globalChangeQueue
-extern ChangeQueue globalChangeQueue;
-// 占位函数：暂时简单返回 true，实际应根据论文条件进行判断
-bool is_qualified_pairs(int xi, int xj) {
-    // 获取 xi 和 xj 的最近变化记录
-    std::deque<ChangeEvent> changes_xi = globalChangeQueue.getRecentChanges(xi);
-    std::deque<ChangeEvent> changes_xj = globalChangeQueue.getRecentChanges(xj);
-    
-    // 将变化记录中的变量提取到集合中，忽略顺序和重复
-    std::unordered_set<int> set_xi;
-    std::unordered_set<int> set_xj;
-    
-    for (const auto& event : changes_xi) {
-        set_xi.insert(event.variable);
-    }
-    for (const auto& event : changes_xj) {
-        set_xj.insert(event.variable);
-    }
-    
-    // 只有当两个集合都恰好包含两个不同的元素，并且完全相等时返回 false
-    if (set_xi.size() == 2 && set_xj.size() == 2) {
-        if (set_xi == set_xj)
-            return false;
-    }
-    // 否则返回 true
-    return true;
-}
-
 // 占位函数：计算变量对 (xi, xj) 的分数 N(F, xi, xj, s)
 // 此处假设 N_score[v] 已经记录了单个变量 v 的得分
 // 并且使用前面实现的 computePairDeltaOverlap(xi, xj) 计算 Delta_overlap
