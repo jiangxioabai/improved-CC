@@ -38,8 +38,7 @@
 #include <deque>
 #include <vector>
 #include <utility>
-#include change_deque.cpp
-
+#include <unordered_set>
 // 假设 LCQEntry 结构体定义如下：
 struct LCQEntry {
     int var1;      // 保证 var1 < var2
@@ -54,7 +53,10 @@ vector<LCQEntry> LCQ;
 std::vector<std::deque<int>> var_change;
 // 需要每次遍历flipvar及其邻居和二次邻居的var_change，用于判断受到影响的是否为unqualified_pairs
 // 定义全局变量 neighbor_pairs 和 unqualified_pairs
-std::set<std::pair<int, int>> neighbor_pairs;
+// 定义存储所有相邻变量对的集合（每个对保证 (v, u) 中 v < u）
+set<pair<int, int>> neighbor_pairs;
+// 定义存储 critical pairs 的集合（即重复出现的对）
+set<pair<int, int>> criticalPairs;
 std::set<std::pair<int, int>> unqualified_pairs;
 // 定义标准unqualified_pairs对，变量编号更小的插入到前面
 std::pair<int, int> normalizePair(int a, int b) {
@@ -417,6 +419,28 @@ inline void sat(int clause)
 	}
 }
 
+
+bool is_qualified_pairs(int xi, int xj) {
+    // 取出两个变量对应的变化队列
+    const std::deque<int>& dq_xi = var_change[xi];
+    const std::deque<int>& dq_xj = var_change[xj];
+    
+    // 仅当两个队列都恰好包含两个事件时才判断；否则直接返回 true
+    if (dq_xi.size() == 2 && dq_xj.size() == 2) {
+        // 检查各自队列中元素是否不同
+        if (dq_xi[0] != dq_xi[1] && dq_xj[0] != dq_xj[1]) {
+            // 构造集合
+            std::unordered_set<int> set_xi(dq_xi.begin(), dq_xi.end());
+            std::unordered_set<int> set_xj(dq_xj.begin(), dq_xj.end());
+            // 如果两个集合完全相同，则返回 false
+            if (set_xi == set_xj) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 // 占位函数：计算变量对 (xi, xj) 的分数 N(F, xi, xj, s)
 // 此处假设 N_score[v] 已经记录了单个变量 v 的得分
 // 并且使用前面实现的 computePairDeltaOverlap(xi, xj) 计算 Delta_overlap
@@ -527,6 +551,8 @@ void update_LCQ_for_variable(int v) {
         }
     }
 }
+
+
 //initiation of the algorithm
 // void init()
 // {

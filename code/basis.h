@@ -27,9 +27,14 @@ bool isCriticalVar[MAX_VARS];
 // Global集合：criticalPairs 存放所有 critical pair（变量对，满足 i < j），noncriticalPairs 存放所有非关键变量对
 #include <vector>
 #include <utility>
+#include <set>
+
 using namespace std;
-vector< pair<int, int> > criticalPairs;
-vector< pair<int, int> > noncriticalPairs;
+// 定义存储所有相邻变量对的集合（每个对保证 (v, u) 中 v < u）
+set<pair<int, int>> neighbor_pairs;
+// 定义存储 critical pairs 的集合（即重复出现的对）
+set<pair<int, int>> criticalPairs;
+set<pair<int, int>> noncriticalPairs;
 
 // 为每个 critical 变量，记录包含它的 critical pair 列表：LCP(X_i)
 vector< pair<int, int> > LCP[MAX_VARS];
@@ -329,127 +334,34 @@ void build_neighbor_relation()
 	delete[] neighbor_flag; neighbor_flag=NULL;
 }
 
-
-// 我们将所有变量对都记录到 allPairs 中
-// 每个 pair 记录的是 (i, j) 且保证 i < j
-#include <vector>
-#include <unordered_map>
-#include <algorithm>
-#include <utility>
-using namespace std;
-
-void init_critical_pairs() {
-    // 清空全局集合
+void build_neighbor_pairs() {
+    neighbor_pairs.clear();
     criticalPairs.clear();
-    noncriticalPairs.clear();
-    LCC.clear();
-    // 对于 LCP，每个变量的 vector 也清空
-    for (int v = 0; v < MAX_VARS; v++) {
-        LCP[v].clear();
-    }
-
-    // 使用 unordered_map 统计每个变量对出现的次数
-    // 键的构造： key = (long long) i * MAX_VARS + j，保证 i < j
-    unordered_map<long long, int> pairCount;
-
-    // 第一遍遍历：统计所有子句中所有变量对出现的次数
-    for (int c = 0; c < num_clauses; c++) {
-        vector<int> vars;
-        // 提取子句 c 中所有变量（遇到 var_num==0 结束）
-        for (int j = 0; j < clause_lit_count[c]; j++) {
-            int var = clause_lit[c][j].var_num;
-            if (var == 0) break;
-            vars.push_back(var);
-        }
-        if (vars.empty()) continue;
-        sort(vars.begin(), vars.end());
-        // 枚举当前子句中所有变量对 (i, j)（i < j）
-        for (size_t i = 0; i < vars.size(); i++) {
-            for (size_t j = i + 1; j < vars.size(); j++) {
-                int vi = vars[i], vj = vars[j];
-                long long key = ((long long) vi) * MAX_VARS + vj;
-                pairCount[key]++;
-            }
-        }
-    }
-
-    // 初始化所有子句和变量的标记为 false
-    for (int c = 0; c < num_clauses; c++) {
-        isCriticalClause[c] = false;
-    }
-    for (int v = 0; v < MAX_VARS; v++) {
-        isCriticalVar[v] = false;
-    }
-
-    // 第二遍遍历：对每个子句，枚举其所有变量对，并根据 pairCount 分为 critical 和 noncritical
-    for (int c = 0; c < num_clauses; c++) {
-        vector<int> vars;
-        for (int j = 0; j < clause_lit_count[c]; j++) {
-            int var = clause_lit[c][j].var_num;
-            if (var == 0) break;
-            vars.push_back(var);
-        }
-        if (vars.empty()) continue;
-        sort(vars.begin(), vars.end());
-        // 局部 vector 用于保存当前子句中 critical pair
-        vector< pair<int, int> > localCritical;
-        // 局部 vector 用于保存当前子句中 noncritical pair
-        vector< pair<int, int> > localNoncritical;
-        for (size_t i = 0; i < vars.size(); i++) {
-            for (size_t j = i + 1; j < vars.size(); j++) {
-                int vi = vars[i], vj = vars[j];
-                long long key = ((long long) vi) * MAX_VARS + vj;
-                if (pairCount[key] > 1) {
-                    localCritical.push_back(make_pair(vi, vj));
-                    // 同时，更新 LCC：记录当前子句 c 属于此 critical pair
-                    LCC[key].push_back(c);
+    
+    // 遍历每个变量 v（变量编号从 1 开始）
+    for (int v = 1; v <= num_vars; v++) {
+        // var_neighbor[v] 是一个以 0 结束的数组，存储变量 v 的所有邻居
+        for (int i = 0; var_neighbor[v][i] != 0; i++) {
+            int u = var_neighbor[v][i];
+            // 只考虑 v < u 以避免重复（保证每个对只记录一次）
+            if (v < u) {
+                std::pair<int, int> pr = std::make_pair(v, u);
+                // 如果该对已存在于 neighbor_pairs 中，则将其插入 criticalPairs
+                if (neighbor_pairs.find(pr) != neighbor_pairs.end()) {
+                    criticalPairs.insert(pr);
                 } else {
-                    localNoncritical.push_back(make_pair(vi, vj));
+                    // 否则，将其插入 neighbor_pairs
+                    neighbor_pairs.insert(pr);
                 }
             }
         }
-        // 如果当前子句中至少有一个 critical pair，则标记该子句为 critical，
-        // 并将局部 critical pair 添加到 global criticalPairs，同时标记相关变量
-        if (!localCritical.empty()) {
-            isCriticalClause[c] = true;
-            for (size_t k = 0; k < localCritical.size(); k++) {
-                criticalPairs.push_back(localCritical[k]);
-                isCriticalVar[ localCritical[k].first ] = true;
-                isCriticalVar[ localCritical[k].second ] = true;
-            }
-        }
-        // 将当前子句中所有 noncritical pair 添加到 global noncriticalPairs
-        for (size_t k = 0; k < localNoncritical.size(); k++) {
-            noncriticalPairs.push_back(localNoncritical[k]);
-        }
     }
-
-    // 对 global criticalPairs 进行排序和去重
-    sort(criticalPairs.begin(), criticalPairs.end());
-    criticalPairs.erase(unique(criticalPairs.begin(), criticalPairs.end()), criticalPairs.end());
-    
-    // 同理，对 global noncriticalPairs 进行排序和去重
-    sort(noncriticalPairs.begin(), noncriticalPairs.end());
-    noncriticalPairs.erase(unique(noncriticalPairs.begin(), noncriticalPairs.end()), noncriticalPairs.end());
-
-    // 根据 global criticalPairs 构建每个 critical 变量的 LCP
-    // 对于每个 critical pair (vi, vj) 在 criticalPairs 中，分别加入 LCP[vi] 和 LCP[vj]
-    for (size_t k = 0; k < criticalPairs.size(); k++) {
-        int vi = criticalPairs[k].first;
-        int vj = criticalPairs[k].second;
-        LCP[vi].push_back(criticalPairs[k]);
-        LCP[vj].push_back(criticalPairs[k]);
-    }
-    
-    // 可选：对每个 LCP[v] 进行排序和去重
-    for (int v = 0; v < MAX_VARS; v++) {
-        if (!LCP[v].empty()) {
-            sort(LCP[v].begin(), LCP[v].end());
-            LCP[v].erase(unique(LCP[v].begin(), LCP[v].end()), LCP[v].end());
-        }
-    }
+    // 利用 std::set_difference 求出非关键对：noncriticalPairs = neighbor_pairs - criticalPairs
+    noncriticalPairs.clear();
+    std::set_difference(neighbor_pairs.begin(), neighbor_pairs.end(),
+                        criticalPairs.begin(), criticalPairs.end(),
+                        std::inserter(noncriticalPairs, noncriticalPairs.begin()));
 }
-
 
 
 void print_solution()
