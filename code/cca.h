@@ -359,6 +359,11 @@ void flip_1(int flipvar)
 			already_in_goodvar_stack[v] = 1;
 		}
 	}
+    // ===== 新增 LCQ 更新 =====
+    // 如果 flipvar 是 critical 变量（即在 LCP 中有记录），则更新与 flipvar 相关的 LCQEntry
+    if (LCP.find(flipvar) != LCP.end() && !LCP[flipvar].empty()) {
+        update_LCQ_for_variable(flipvar);
+    }
 }
 
 // ------------------------------------------------------------------------new
