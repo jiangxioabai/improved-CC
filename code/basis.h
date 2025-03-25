@@ -36,8 +36,8 @@ set<pair<int, int>> neighbor_pairs;
 set<pair<int, int>> criticalPairs;
 set<pair<int, int>> noncriticalPairs;
 
-// 为每个 critical 变量，记录包含它的 critical pair 列表：LCP(X_i)
-vector< pair<int, int> > LCP[MAX_VARS];
+// 我们定义 LCP 用于存储关键变量对应的 critical pair 列表，键为变量编号，值为该变量参与的所有 critical pair
+unordered_map<int, vector<pair<int, int>>> LCP;
 
 // 对于每个 critical pair (X_i, X_j)，使用 LCC 来记录所有出现该对的 critical 子句
 // 这里使用 unordered_map，键构造方式与之前一致：key = (long long) i * MAX_VARS + j（保证 i < j）
@@ -72,7 +72,7 @@ int		org_clause_lit_count[MAX_CLAUSES]; 	// amount of literals in each clause
 int		simplify=0;
 			
 /* Information about the variables. */
-int orig_score[MAX_VARS]; //score without weight
+int     orig_score[MAX_VARS]; //score without weight
 int     score[MAX_VARS];				
 int		time_stamp[MAX_VARS];
 int		conf_change[MAX_VARS];
@@ -334,6 +334,15 @@ void build_neighbor_relation()
 	delete[] neighbor_flag; neighbor_flag=NULL;
 }
 
+std::set<int> build_critical_vars() {
+    std::set<int> criticalVars;
+    for (const auto& pr : criticalPairs) {
+        criticalVars.insert(pr.first);
+        criticalVars.insert(pr.second);
+    }
+    return criticalVars;
+}
+
 void build_neighbor_pairs() {
     neighbor_pairs.clear();
     criticalPairs.clear();
@@ -363,19 +372,66 @@ void build_neighbor_pairs() {
                         std::inserter(noncriticalPairs, noncriticalPairs.begin()));
 }
 
+void build_LCP() {
+    LCP.clear();
+    // 遍历 global criticalPairs 中的每个 pair
+    for (const auto &pr : criticalPairs) {
+        int a = pr.first;
+        int b = pr.second;
+        // 只有 a 和 b 出现在 criticalPairs 中才需要记录
+        LCP[a].push_back(pr);
+        LCP[b].push_back(pr);
+    }
+}
+
+void build_LCC_from_criticalPairs() {
+    LCC.clear();
+    // 遍历每个 critical pair (xi, xj)
+    for (const auto &pr : criticalPairs) {
+        int xi = pr.first;
+        int xj = pr.second;
+        
+        // 获取变量 xi 出现的所有子句（去重）
+        vector<int> clauses_xi;
+        for (int k = 0; var_lit[xi][k].clause_num != -1; k++) {
+            clauses_xi.push_back(var_lit[xi][k].clause_num);
+        }
+        sort(clauses_xi.begin(), clauses_xi.end());
+        clauses_xi.erase(unique(clauses_xi.begin(), clauses_xi.end()), clauses_xi.end());
+        
+        // 获取变量 xj 出现的所有子句（去重）
+        vector<int> clauses_xj;
+        for (int k = 0; var_lit[xj][k].clause_num != -1; k++) {
+            clauses_xj.push_back(var_lit[xj][k].clause_num);
+        }
+        sort(clauses_xj.begin(), clauses_xj.end());
+        clauses_xj.erase(unique(clauses_xj.begin(), clauses_xj.end()), clauses_xj.end());
+        
+        // 计算两个集合的交集，存入 common_clauses
+        vector<int> common_clauses;
+        set_intersection(clauses_xi.begin(), clauses_xi.end(),
+                        clauses_xj.begin(), clauses_xj.end(),
+                        back_inserter(common_clauses));
+        
+        // 构造键，保证 xi < xj
+        long long key = ((long long)xi) * MAX_VARS + xj;
+        LCC[key] = common_clauses;
+    }
+}
+
 
 void print_solution()
 {
-     int    i;
+    int    i;
 
-     cout<<"v ";
-     for (i=1; i<=num_vars; i++) {
-         if(cur_soln[i]==0) cout<<"-";
-         cout<<i;
-         if(i%10==0) cout<<endl<<"v ";
-         else	cout<<' ';
-     }
-     cout<<"0"<<endl;
+    cout<<"v ";
+    for (i=1; i<=num_vars; i++) {
+        if(cur_soln[i]==0) cout<<"-";
+        cout<<i;
+        if(i%10==0) cout<<endl<<"v ";
+        else	cout<<' ';
+    }
+    cout<<"0"<<endl;
 }
 
 

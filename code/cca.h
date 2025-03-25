@@ -45,7 +45,8 @@ struct LCQEntry {
     int var2;
     int pairScore; // 当前计算的分数 N(F, var1, var2, s)
 };
-
+//criticalVars 为全局变量，存储所有 critical 变量的编号
+extern std::vector<int> criticalVars;
 // 全局 LCQ 列表
 vector<LCQEntry> LCQ;
 
@@ -207,6 +208,8 @@ void init_1()
 	time_stamp[0]=0;
 	//pscore[0]=0;
 }
+
+
 void flip_1(int flipvar)
 {
 	//选择翻转变量后应该更新flipvar及其邻居的var_change
@@ -441,6 +444,36 @@ bool is_qualified_pairs(int xi, int xj) {
     return true;
 }
 
+bool is_valuable_for_critical(int xi, int xj) {
+    // 根据你的说明：
+    // score(F, X_j, s_i_t) = computePairScore(xi, xj) - orig_score[xi]
+    // score(F, X_i, s_i,j_t) = computePairScore(xi, xj) - orig_score[xj]
+    //
+    // 条件要求：
+    // 1. orig_score[xi] + (computePairScore(xi, xj) - orig_score[xi]) > 0   => computePairScore(xi, xj) > 0
+    // 2. (computePairScore(xi, xj) - orig_score[xi]) > 0
+    // 3. (computePairScore(xi, xj) - orig_score[xi]) > orig_score[xj]
+    // 4. (computePairScore(xi, xj) - orig_score[xj]) <= 0
+    //
+    // 下面将 computePairScore(xi, xj) 用 n_i_j 表示：
+    int n_i_j = computePairScore(xi, xj);
+    // 条件2
+    bool cond2 = (n_i_j - orig_score[xi] > 0);
+    // 条件1: 其实就是 n_i_j > 0
+    bool cond1 = (n_i_j > 0);
+    // 条件3: (n_i_j - orig_score[xi]) > orig_score[xj]
+    bool cond3 = ((n_i_j - orig_score[xi]) > orig_score[xj]);
+    // 条件4: (n_i_j - orig_score[xj]) <= 0
+    bool cond4 = ((n_i_j - orig_score[xj]) <= 0);
+    
+    if (cond1 && cond2 && cond3 && cond4)
+        return true;
+    else
+        return false;
+}
+
+
+
 // 占位函数：计算变量对 (xi, xj) 的分数 N(F, xi, xj, s)
 // 此处假设 N_score[v] 已经记录了单个变量 v 的得分
 // 并且使用前面实现的 computePairDeltaOverlap(xi, xj) 计算 Delta_overlap
@@ -504,50 +537,46 @@ int computePairDeltaOverlap(int xi, int xj) {
 }
 
 // 初始化 LCQ：遍历所有 critical 变量（isCriticalVar[v] 为 true 且 LCP[v] 非空），更新 LCQ
-void init_LCQ() {
-    LCQ.clear();
-    // 假设变量编号从 1 到 num_vars
-    for (int v = 1; v <= num_vars; v++) {
-        if (isCriticalVar[v] && !LCP[v].empty()) {
-            update_LCQ_for_variable(v);
+void update_LCQ_for_variable(int v) {
+    // 遍历 LCP[v] 中存储的所有 pair
+    for (const auto &p : LCP[v]) {
+        int xi = p.first;
+        int xj = p.second;
+        // 保证 xi < xj
+        int a = std::min(xi, xj);
+        int b = std::max(xi, xj);
+        int pairScore = computePairScore(a, b); // 计算综合分数
+
+        // 如果满足 qualified 和 valuable 的条件
+        if (is_qualified_pairs(a, b) && is_valuable_for_critical(a, b)) {
+            // 查找 LCQ 中是否已有该 pair
+            auto it = std::find_if(LCQ.begin(), LCQ.end(), [a, b](const LCQEntry &entry) {
+                return entry.var1 == a && entry.var2 == b;
+            });
+            if (it != LCQ.end()) {
+                // 更新已有 pair 的分数
+                it->pairScore = pairScore;
+            } else {
+                // 若不存在则加入新的 LCQEntry
+                LCQ.push_back({a, b, pairScore});
+            }
+        } else {
+            // 如果不满足条件，则从 LCQ 中删除该 pair（如果存在）
+            LCQ.erase(std::remove_if(LCQ.begin(), LCQ.end(), [a, b](const LCQEntry &entry) {
+                return entry.var1 == a && entry.var2 == b;
+            }), LCQ.end());
         }
     }
 }
 
-void update_LCQ_for_variable(int v) {
-    // 假设 LCP[v] 已经存储了该 critical 变量相关的所有 pair
-    for (size_t i = 0; i < LCP[v].size(); i++) {
-        int xi = LCP[v][i].first;
-        int xj = LCP[v][i].second;
-        // 保证 xi < xj
-        int a = min(xi, xj), b = max(xi, xj);
-        int pairScore = computePairScore(a, b); // 调用之前定义的函数
-        // 判断是否满足 u-q-flippable 条件
-        if (is_qualified_pairs(a, b)) {
-            // 在 LCQ 中查找是否已有此 pair
-            bool found = false;
-            for (size_t k = 0; k < LCQ.size(); k++) {
-                if (LCQ[k].var1 == a && LCQ[k].var2 == b) {
-                    LCQ[k].pairScore = pairScore;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                LCQEntry entry;
-                entry.var1 = a;
-                entry.var2 = b;
-                entry.pairScore = pairScore;
-                LCQ.push_back(entry);
-            }
-        } else {
-            // 如果不满足条件，则从 LCQ 中移除该 pair（如果存在）
-            for (auto it = LCQ.begin(); it != LCQ.end(); ) {
-                if (it->var1 == a && it->var2 == b)
-                    it = LCQ.erase(it);
-                else
-                    ++it;
-            }
+
+void init_LCQ() {
+    LCQ.clear();
+    // 遍历 criticalVars 中所有的 critical 变量
+    for (int v : criticalVars) {
+        // 如果该变量在 LCP 中有记录且其列表不为空，则更新 LCQ
+        if (LCP.find(v) != LCP.end() && !LCP[v].empty()) {
+            update_LCQ_for_variable(v);
         }
     }
 }
