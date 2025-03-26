@@ -9,7 +9,11 @@
 #include <unordered_map>
 #include <algorithm>
 #include <utility>
-using namespace std;
+#include <set>
+#include <map>
+#include <iterator>   // ← 最后一行 include
+using namespace std;   // ← 然后统一只写这一次
+
 
 enum type{SAT3, SAT5, SAT7, strSAT} probtype;
 
@@ -30,9 +34,9 @@ bool isCriticalVar[MAX_VARS];
 #include <set>
 
 // 非关键 pair集合：键为 canonical pair (min, max)，值为出现该 pair 的不同子句编号列表
-std::unordered_map<std::pair<int,int>, std::vector<int>, pair_hash> noncriticalpairs;
+map<pair<int,int>, int> noncriticalpairs;
 // 关键 pair集合：存储那些在不同子句中至少出现两次的 pair（canonical 形式）
-std::set<std::pair<int,int>> criticalpairs;
+set<pair<int,int>> criticalpairs;
 
 
 using namespace std;
@@ -40,8 +44,6 @@ using namespace std;
 set<pair<int, int>> neighbor_pairs;
 // 定义存储 critical pairs 的集合（即重复出现的对）
 set<std::pair<int,int>> qualified_pairs_in_critical;
-set<std::pair <int, int>> critical;
-unordered_map<int,std::pair <int, int>> noncritical;
 
 // 我们定义 LCP 用于存储关键变量对应的 critical pair 列表，键为变量编号，值为该变量参与的所有 critical pair
 unordered_map<int, vector<pair<int, int>>> LCP;
@@ -314,18 +316,15 @@ void build_neighbor_relation()
 					var_neighbor_count[v]++;
 					neighbor_flag[clause_lit[c][j].var_num] = 1;
 
+					int u = clause_lit[c][j].var_num;
                     // --- 更新 criticalpairs 和 noncriticalpairs ---
                     // 构造 canonical 形式的 pairKey: 较小的编号在前
                     int a = (v < u) ? v : u;
                     int b = (v < u) ? u : v;
                     std::pair<int,int> pairKey = {a, b};
 
-                    // 如果该 pairKey 已存在于 criticalpairs 中，则什么也不做
-                    if (criticalpairs.find(pairKey) != criticalpairs.end())
-                    {
-                        // 已经是 critical，不用处理
-                    }
-                    else
+					// 如果该 pairKey 不存在于 criticalpairs 中，则继续
+                    if (criticalpairs.find(pairKey) == criticalpairs.end())
                     {
                         // 在 noncriticalpairs 中查找该 pairKey
                         auto it = noncriticalpairs.find(pairKey);
@@ -379,7 +378,7 @@ void build_neighbor_relation()
 
 std::set<int> build_critical_vars() {
     std::set<int> criticalVars;
-    for (const auto& pr : criticalPairs) {
+    for (const auto& pr : criticalpairs) {
         criticalVars.insert(pr.first);
         criticalVars.insert(pr.second);
     }
@@ -389,14 +388,11 @@ std::set<int> build_critical_vars() {
 
 void update_noncritical_clauses() {
     noncritical_clauses.clear();
-    // 遍历 noncriticalpairs 中每个 pair 及其对应的子句编号列表
     for (const auto &entry : noncriticalpairs) {
-        const std::vector<int> &clauses = entry.second;
-        for (int c : clauses) {
-            noncritical_clauses.insert(c);
-        }
+        noncritical_clauses.insert(entry.second);
     }
 }
+
 
 // void build_neighbor_pairs() {
 //     neighbor_pairs.clear();
@@ -430,7 +426,7 @@ void update_noncritical_clauses() {
 void build_LCP() {
     LCP.clear();
     // 遍历 global criticalPairs 中的每个 pair
-    for (const auto &pr : criticalPairs) {
+    for (const auto &pr : criticalpairs) {
         int a = pr.first;
         int b = pr.second;
         // 只有 a 和 b 出现在 criticalPairs 中才需要记录
@@ -442,7 +438,7 @@ void build_LCP() {
 void build_LCC_from_criticalPairs() {
     LCC.clear();
     // 遍历每个 critical pair (xi, xj)
-    for (const auto &pr : criticalPairs) {
+    for (const auto &pr : criticalpairs) {
         int xi = pr.first;
         int xj = pr.second;
         
@@ -474,17 +470,17 @@ void build_LCC_from_criticalPairs() {
     }
 }
 
-void build_qualified_pairs_in_critical() {
-    qualified_pairs_in_critical.clear();
-    for (const auto &p : criticalPairs) {
-        int xi = p.first;
-        int xj = p.second;
-        if (is_qualified_pairs(xi, xj)) {
-            qualified_pairs_in_critical.insert({xi, xj});
-            qualified_pairs_in_critical.insert({xj, xi});
-        }
-    }
-}
+// void build_qualified_pairs_in_critical() {
+//     qualified_pairs_in_critical.clear();
+//     for (const auto &p : criticalpairs) {
+//         int xi = p.first;
+//         int xj = p.second;
+//         if (is_qualified_pairs(xi, xj)) {
+//             qualified_pairs_in_critical.insert({xi, xj});
+//             qualified_pairs_in_critical.insert({xj, xi});
+//         }
+//     }
+// }
 
 void print_solution()
 {

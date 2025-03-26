@@ -38,8 +38,147 @@ int pick_var_1()
 	}
 	
 	// 2step_q-flippable变量
+	best_var = 0;
+	// 先遍历critical ，再遍历noncritical，判断是否是qualified_pairs，再判断是否是valuable
+	pair<int,int> pairs;
+	int maxscore = 0;
+	for(auto iter = criticalpairs.begin(); iter != criticalpairs.end(); ++iter){
+		pairs = *iter;
+		// 判断是qualified后，需要分别判断（xi，xj）和（xj，xi）是valuable
+		if(is_qualified_pairs(pairs)){
+			Result result1, result2;
+			result1 = is_valuable_for_critical(pairs.first,pairs.second);
+			result2 = is_valuable_for_critical(pairs.second,pairs.first);
+			// 判断是（xi，xj）或（xj，xi）是valuable
+			if(result1.re || result2.re){
+				// 两个都是，则比较分数满足后取更久没更新的
+				if(result1.re && result2.re){
+					if(result1.value > maxscore){
+						maxscore = result1.value;
+						best_var = (time_stamp[pairs.first]<time_stamp[pairs.second]) ? pairs.first:pairs.second;
+					}
+				}
+				// 其中一个是，则只比较是的那个的分数
+				else{
+					if(result1.re){
+						if(result1.value > maxscore){
+							maxscore = result1.value;
+							best_var = pairs.first;
+						}
+					}
+					else{
+						if(result2.value > maxscore){
+							maxscore = result2.value;
+							best_var = pairs.second;
+						}
+					}
+				}
+			}
+		}
+	}
+	for(auto iter = noncriticalpairs.begin(); iter != noncriticalpairs.end(); ++iter){
+		pairs = (*iter).first;
+		// 判断是qualified后，需要分别判断（xi，xj）和（xj，xi）是valuable
+		if(is_qualified_pairs(pairs)){
+			Result result1, result2;
+			result1 = is_valuable_for_noncritical(pairs.first,pairs.second);
+			result2 = is_valuable_for_noncritical(pairs.second,pairs.first);
+			// 判断是（xi，xj）或（xj，xi）是valuable
+			if(result1.re || result2.re){
+				// 两个都是，则比较分数满足后取更久没更新的
+				if(result1.re && result2.re){
+					if(result1.value > maxscore){
+						maxscore = result1.value;
+						best_var = (time_stamp[pairs.first]<time_stamp[pairs.second]) ? pairs.first:pairs.second;
+					}
+				}
+				// 其中一个是，则只比较是的那个的分数
+				else{
+					if(result1.re){
+						if(result1.value > maxscore){
+							maxscore = result1.value;
+							best_var = pairs.first;
+						}
+					}
+					else{
+						if(result2.value > maxscore){
+							maxscore = result2.value;
+							best_var = pairs.second;
+						}
+					}
+				}
+			}
+		}
+	}
+	if(best_var!=0) return best_var;
 
-	
+	// reversible变量
+	for(auto iter = criticalpairs.begin(); iter != criticalpairs.end(); ++iter){
+		pairs = *iter;
+		// 判断是unqualified后，需要分别判断（xi，xj）和（xj，xi）是valuable
+		Result result1, result2;
+		result1 = is_valuable_for_critical(pairs.first,pairs.second);
+		result2 = is_valuable_for_critical(pairs.second,pairs.first);
+		// 判断是（xi，xj）或（xj，xi）是valuable
+		if(result1.re || result2.re){
+			// 两个都是，则比较分数满足后取更久没更新的
+			if(result1.re && result2.re){
+				if(result1.value > maxscore){
+					maxscore = result1.value;
+					best_var = (time_stamp[pairs.first]<time_stamp[pairs.second]) ? pairs.first:pairs.second;
+				}
+			}
+			// 其中一个是，则只比较是的那个的分数
+			else{
+				if(result1.re){
+					if(result1.value > maxscore){
+						maxscore = result1.value;
+						best_var = pairs.first;
+					}
+				}
+				else{
+					if(result2.value > maxscore){
+						maxscore = result2.value;
+						best_var = pairs.second;
+					}
+				}
+			}
+		}
+	}
+	for(auto iter = noncriticalpairs.begin(); iter != noncriticalpairs.end(); ++iter){
+		pairs = (*iter).first;
+		// 判断是qualified后，需要分别判断（xi，xj）和（xj，xi）是valuable
+		Result result1, result2;
+		result1 = is_valuable_for_noncritical(pairs.first,pairs.second);
+		result2 = is_valuable_for_noncritical(pairs.second,pairs.first);
+		// 判断是（xi，xj）或（xj，xi）是valuable
+		if(result1.re || result2.re){
+			// 两个都是，则比较分数满足后取更久没更新的
+			if(result1.re && result2.re){
+				if(result1.value > maxscore){
+					maxscore = result1.value;
+					best_var = (time_stamp[pairs.first]<time_stamp[pairs.second]) ? pairs.first:pairs.second;
+				}
+			}
+			// 其中一个是，则只比较是的那个的分数
+			else{
+				if(result1.re){
+					if(result1.value > maxscore){
+						maxscore = result1.value;
+						best_var = pairs.first;
+					}
+				}
+				else{
+					if(result2.value > maxscore){
+						maxscore = result2.value;
+						best_var = pairs.second;
+					}
+				}
+			}
+		}
+	}
+	if(best_var!=0) return best_var;
+
     key_flip = 1;
     // reversible 变量
 
@@ -111,24 +250,30 @@ int pick_var()
 		
 		return best_var;
 	}
-	
+
+
+
+	/*2-step */
+
+
+
 	/*SD (significant decreasing) mode, the level with aspiration*/
-	best_var = 0;
-	for(i=0; i<unsatvar_stack_fill_pointer; ++i)// 遍历所有不满足子句中的变量
-	{
-		if(score[unsatvar_stack[i]]>sigscore) 
-		{
-			best_var = unsatvar_stack[i];// 先找到一个满足大于sigscore的变量
-			break;
-		}
-	}
-	// 继续遍历不满足子句中的变量找到分数最大的变量，相同则选择最早翻转的变量（和上面相同）
-	for(++i; i<unsatvar_stack_fill_pointer; ++i)
-	{
-		v=unsatvar_stack[i];
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
-	}
+	// best_var = 0;
+	// for(i=0; i<unsatvar_stack_fill_pointer; ++i)// 遍历所有不满足子句中的变量
+	// {
+	// 	if(score[unsatvar_stack[i]]>sigscore) 
+	// 	{
+	// 		best_var = unsatvar_stack[i];// 先找到一个满足大于sigscore的变量
+	// 		break;
+	// 	}
+	// }
+	// // 继续遍历不满足子句中的变量找到分数最大的变量，相同则选择最早翻转的变量（和上面相同）
+	// for(++i; i<unsatvar_stack_fill_pointer; ++i)
+	// {
+	// 	v=unsatvar_stack[i];
+	// 	if(score[v]>score[best_var]) best_var = v;
+	// 	else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
+	// }
 		
 	if(best_var!=0) return best_var;
 	// 如果既没有1-step q-flippable变量，也没有SD变量，则更新子句权重，并随机游走
@@ -194,7 +339,6 @@ int main(int argc, char* argv[])
 		cout<<"Invalid filename: "<< argv[1]<<endl;
 		return -1;
 	}
-    init_critical_pairs();
 
     sscanf(argv[2],"%d",&seed);
     
