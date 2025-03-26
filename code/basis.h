@@ -18,8 +18,8 @@ enum type{SAT3, SAT5, SAT7, strSAT} probtype;
 #define MAX_CLAUSES 20000000
 
 // 关于critical的数据定义 
-// 用于标记每个子句是否为 critical
-bool isCriticalClause[MAX_CLAUSES];
+// noncritical_clauses：用于存储所有在 noncriticalpairs 中出现过的子句编号
+std::set<int> noncritical_clauses;
 
 // 用于标记每个变量是否出现在某个 critical pair 中
 bool isCriticalVar[MAX_VARS];
@@ -29,12 +29,19 @@ bool isCriticalVar[MAX_VARS];
 #include <utility>
 #include <set>
 
+// 非关键 pair集合：键为 canonical pair (min, max)，值为出现该 pair 的不同子句编号列表
+std::unordered_map<std::pair<int,int>, std::vector<int>, pair_hash> noncriticalpairs;
+// 关键 pair集合：存储那些在不同子句中至少出现两次的 pair（canonical 形式）
+std::set<std::pair<int,int>> criticalpairs;
+
+
 using namespace std;
 // 定义存储所有相邻变量对的集合（每个对保证 (v, u) 中 v < u）
 set<pair<int, int>> neighbor_pairs;
 // 定义存储 critical pairs 的集合（即重复出现的对）
-set<pair<int, int>> criticalPairs;
-set<pair<int, int>> noncriticalPairs;
+set<std::pair<int,int>> qualified_pairs_in_critical;
+set<std::pair <int, int>> critical;
+unordered_map<int,std::pair <int, int>> noncritical;
 
 // 我们定义 LCP 用于存储关键变量对应的 critical pair 列表，键为变量编号，值为该变量参与的所有 critical pair
 unordered_map<int, vector<pair<int, int>>> LCP;
@@ -306,6 +313,42 @@ void build_neighbor_relation()
 				{
 					var_neighbor_count[v]++;
 					neighbor_flag[clause_lit[c][j].var_num] = 1;
+
+                    // --- 更新 criticalpairs 和 noncriticalpairs ---
+                    // 构造 canonical 形式的 pairKey: 较小的编号在前
+                    int a = (v < u) ? v : u;
+                    int b = (v < u) ? u : v;
+                    std::pair<int,int> pairKey = {a, b};
+
+                    // 如果该 pairKey 已存在于 criticalpairs 中，则什么也不做
+                    if (criticalpairs.find(pairKey) != criticalpairs.end())
+                    {
+                        // 已经是 critical，不用处理
+                    }
+                    else
+                    {
+                        // 在 noncriticalpairs 中查找该 pairKey
+                        auto it = noncriticalpairs.find(pairKey);
+                        if (it != noncriticalpairs.end())
+                        {
+                            // 已经记录过，检查存储的子句编号是否与当前不同
+                            if (it->second != c)
+                            {
+                                // 出现于不同子句中，将其视为 critical
+                                criticalpairs.insert(pairKey);
+                                noncriticalpairs.erase(it);
+                            }
+                            // 如果相同，则不用重复记录
+                        }
+                        else
+                        {
+                            // 第一次出现该 pairKey，记录当前子句编号 c
+                            noncriticalpairs[pairKey] = c;
+                        }
+                    }
+                    // --- 更新结束 ---
+
+
 				}
 			}
 		}
@@ -343,34 +386,46 @@ std::set<int> build_critical_vars() {
     return criticalVars;
 }
 
-void build_neighbor_pairs() {
-    neighbor_pairs.clear();
-    criticalPairs.clear();
-    
-    // 遍历每个变量 v（变量编号从 1 开始）
-    for (int v = 1; v <= num_vars; v++) {
-        // var_neighbor[v] 是一个以 0 结束的数组，存储变量 v 的所有邻居
-        for (int i = 0; var_neighbor[v][i] != 0; i++) {
-            int u = var_neighbor[v][i];
-            // 只考虑 v < u 以避免重复（保证每个对只记录一次）
-            if (v < u) {
-                std::pair<int, int> pr = std::make_pair(v, u);
-                // 如果该对已存在于 neighbor_pairs 中，则将其插入 criticalPairs
-                if (neighbor_pairs.find(pr) != neighbor_pairs.end()) {
-                    criticalPairs.insert(pr);
-                } else {
-                    // 否则，将其插入 neighbor_pairs
-                    neighbor_pairs.insert(pr);
-                }
-            }
+
+void update_noncritical_clauses() {
+    noncritical_clauses.clear();
+    // 遍历 noncriticalpairs 中每个 pair 及其对应的子句编号列表
+    for (const auto &entry : noncriticalpairs) {
+        const std::vector<int> &clauses = entry.second;
+        for (int c : clauses) {
+            noncritical_clauses.insert(c);
         }
     }
-    // 利用 std::set_difference 求出非关键对：noncriticalPairs = neighbor_pairs - criticalPairs
-    noncriticalPairs.clear();
-    std::set_difference(neighbor_pairs.begin(), neighbor_pairs.end(),
-                        criticalPairs.begin(), criticalPairs.end(),
-                        std::inserter(noncriticalPairs, noncriticalPairs.begin()));
 }
+
+// void build_neighbor_pairs() {
+//     neighbor_pairs.clear();
+//     criticalPairs.clear();
+    
+//     // 遍历每个变量 v（变量编号从 1 开始）
+//     for (int v = 1; v <= num_vars; v++) {
+//         // var_neighbor[v] 是一个以 0 结束的数组，存储变量 v 的所有邻居
+//         for (int i = 0; var_neighbor[v][i] != 0; i++) {
+//             int u = var_neighbor[v][i];
+//             // 只考虑 v < u 以避免重复（保证每个对只记录一次）
+//             if (v < u) {
+//                 std::pair<int, int> pr = std::make_pair(v, u);
+//                 // 如果该对已存在于 neighbor_pairs 中，则将其插入 criticalPairs
+//                 if (neighbor_pairs.find(pr) != neighbor_pairs.end()) {
+//                     criticalPairs.insert(pr);
+//                 } else {
+//                     // 否则，将其插入 neighbor_pairs
+//                     neighbor_pairs.insert(pr);
+//                 }
+//             }
+//         }
+//     }
+//     // 利用 std::set_difference 求出非关键对：noncriticalPairs = neighbor_pairs - criticalPairs
+//     noncriticalPairs.clear();
+//     std::set_difference(neighbor_pairs.begin(), neighbor_pairs.end(),
+//                         criticalPairs.begin(), criticalPairs.end(),
+//                         std::inserter(noncriticalPairs, noncriticalPairs.begin()));
+// }
 
 void build_LCP() {
     LCP.clear();
@@ -419,6 +474,17 @@ void build_LCC_from_criticalPairs() {
     }
 }
 
+void build_qualified_pairs_in_critical() {
+    qualified_pairs_in_critical.clear();
+    for (const auto &p : criticalPairs) {
+        int xi = p.first;
+        int xj = p.second;
+        if (is_qualified_pairs(xi, xj)) {
+            qualified_pairs_in_critical.insert({xi, xj});
+            qualified_pairs_in_critical.insert({xj, xi});
+        }
+    }
+}
 
 void print_solution()
 {

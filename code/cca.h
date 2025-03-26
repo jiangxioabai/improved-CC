@@ -39,16 +39,42 @@
 #include <vector>
 #include <utility>
 #include <unordered_set>
-// 假设 LCQEntry 结构体定义如下：
+
+
+
+int T_C[MAX_CLAUSES];                      // T(C)
+int Q_C[MAX_CLAUSES];                      // Q(C)
+int R_C[MAX_CLAUSES];                      // R(C)
+int S_C[MAX_CLAUSES];                      // S(C)
+
+// LN 用来保存所有非关键且 N(C)==1 的子句编号
+// LN[i] 存储所有满足条件的子句编号，其中 i 为变量编号（1 <= i <= num_vars）
+std::vector<vector<int>> LN;
+extern std::set<int> noncritical_clauses;
+
 struct LCQEntry {
     int var1;      // 保证 var1 < var2
     int var2;
     int pairScore; // 当前计算的分数 N(F, var1, var2, s)
 };
+
+std::vector<LCQEntry> LCR;
+struct LCQEntry {
+    int var1;      // 例如保留原始顺序
+    int var2;
+    int pairScore; // 综合分数，计算方式为 computePairScore(var1, var2)
+};
 //criticalVars 为全局变量，存储所有 critical 变量的编号
 extern std::vector<int> criticalVars;
 // 全局 LCQ 列表
 vector<LCQEntry> LCQ;
+
+bool U_array[MAX_VARS];  
+std::vector<int> LU;
+
+// 全局定义两个集合，类型使用 std::set 保证唯一性和有序性
+std::set<std::pair<int,int>> qualified_pairs_in_critical;
+std::set<std::pair<int,int>> valuable_pairs_for_critical;
 
 // 全局变量var_change[i]表示变量 i 的邻域内最近两次改变的变量队列，长度为2（只记录近两次的）
 std::vector<std::deque<int>> var_change;
@@ -98,7 +124,7 @@ void init_1()
 
 	//init solution
 	for (v = 1; v <= num_vars; v++) {
-        
+
         if(fix[v]==0){
             if(rand()%2==1) cur_soln[v] = 1;
             else cur_soln[v] = 0;
@@ -136,6 +162,8 @@ void init_1()
 	int lit_count;
 	for (v=1; v<=num_vars; v++) 
 	{
+
+		U_array[v] = false; // 初始化bool_U_array
 		// 如果变量被固定，则将其得分设置为一个极小值
 		if(fix[v]==1) 
 		{
@@ -144,14 +172,24 @@ void init_1()
 		}
 		
 		score[v] = 0;
+		orig_score[v] = 0;
 		// 获取变量所在的所有文字数量
 		lit_count = var_lit_count[v];
 		// 遍历变量的所有文字，计算得分
 		for(i=0; i<lit_count; ++i)
 		{	// 获取该文字所在子句的编号
 			c = var_lit[v][i].clause_num;
-			if (sat_count[c]==0) score[v]++; // 子句不满足，则flip该变量后，子句满足，因此得分+1
-			else if (sat_count[c]==1 && var_lit[v][i].sense==cur_soln[v]) score[v]--;// 子句仅由当前变量满足，则得分减1
+            if (sat_count[c] == 1) {
+                if (var_lit[v][i].sense == cur_soln[v])
+                    score[v]--;  // 子句仅由当前变量满足，则得分减1
+					orig_score[v]--;  // 子句仅由当前变量满足，则得分减1
+                if (noncritical_clauses.find(c) != noncritical_clauses.end() && find(LN.begin(), LN.end(), c) == LN.end())
+                    LN[v].push_back(c);
+            }
+            else if (sat_count[c] == 0) {
+                score[v]++;  // 子句不满足，则翻转该变量后子句满足，得分+1
+				orig_score[v]++;  // 子句不满足，则翻转该变量后子句满足，得分+1
+            }
 		}
 	}
 	
@@ -207,6 +245,11 @@ void init_1()
 	//setting for the virtual var 0 时戳初始化为0
 	time_stamp[0]=0;
 	//pscore[0]=0;
+
+    // 解、子句状态、得分初始化完毕后，初始化 LCQ
+    build_qualified_pairs_in_critical();
+    build_valuable_pairs_for_critical();
+    init_LCQ();
 }
 
 
@@ -324,6 +367,22 @@ void flip_1(int flipvar)
 			}//end else if
 			
 		}//end else
+
+        // ----- LN 更新开始 -----
+        // 对于每个子句 c，根据 sat_count[c] 是否等于 1，
+        // 若 sat_count[c]==1 并且 c 属于 noncritical_clauses，则加入 LN（避免重复）
+        // 否则如果 sat_count[c] != 1，则从 LN 中删除 c（如果存在）
+        if (sat_count[c] == 1) {
+            if (noncritical_clauses.find(c) != noncritical_clauses.end()) {
+                if (find(LN.begin(), LN.end(), c) == LN.end())
+                    LN.push_back(c);
+            }
+        } else {
+            auto it = find(LN.begin(), LN.end(), c);
+            if (it != LN.end())
+                LN.erase(it);
+        }
+        // ----- LN 更新结束 -----
 	}
 	// flipvar翻转后，分数为翻转前的相反数，邻居分数已经在上面更新过了
 	score[flipvar] = -org_flipvar_score;
@@ -352,6 +411,10 @@ void flip_1(int flipvar)
 	for(p=var_neighbor[flipvar]; (v=*p)!=0; p++)
 	{
 		conf_change[v] = 1;
+		if (key_flip == 1){
+		    U_array[v] = true;
+			LU.push_back(v);
+		}
 		// 分数大于0，且还未在goodvar_stack，则入栈
 		if(score[v]>0 && already_in_goodvar_stack[v] ==0)
 		{
@@ -359,11 +422,14 @@ void flip_1(int flipvar)
 			already_in_goodvar_stack[v] = 1;
 		}
 	}
+
+
+
     // ===== 新增 LCQ 更新 =====
-    // 如果 flipvar 是 critical 变量（即在 LCP 中有记录），则更新与 flipvar 相关的 LCQEntry
-    if (LCP.find(flipvar) != LCP.end() && !LCP[flipvar].empty()) {
-        update_LCQ_for_variable(flipvar);
-    }
+    update_qualified_pairs_for_critical(flipvar);
+	update_valuable_pairs_for_critical(flipvar);
+	init_LCQ();
+	init_LCR();
 }
 
 // ------------------------------------------------------------------------new
@@ -541,48 +607,144 @@ int computePairDeltaOverlap(int xi, int xj) {
     return Delta_overlap;
 }
 
-// 初始化 LCQ：遍历所有 critical 变量（isCriticalVar[v] 为 true 且 LCP[v] 非空），更新 LCQ
-void update_LCQ_for_variable(int v) {
-    // 遍历 LCP[v] 中存储的所有 pair
-    for (const auto &p : LCP[v]) {
+// 全局定义两个集合，类型使用 std::set 保证唯一性和有序性
+std::set<std::pair<int,int>> qualified_pairs_in_critical;
+std::set<std::pair<int,int>> valuable_pairs_for_critical;
+
+// 构建 qualified 的 critical pair 集合：
+// 遍历 global criticalPairs（假设为 std::vector<std::pair<int,int>> 或其他容器），
+ // 若某个 pair 满足 is_qualified_pairs 条件，则同时将 (xi,xj) 和 (xj,xi) 插入。
+void build_qualified_pairs_in_critical() {
+    qualified_pairs_in_critical.clear();
+    for (const auto &p : criticalPairs) {
         int xi = p.first;
         int xj = p.second;
-        // 保证 xi < xj
-        int a = std::min(xi, xj);
-        int b = std::max(xi, xj);
-        int pairScore = computePairScore(a, b); // 计算综合分数
+        if (is_qualified_pairs(xi, xj)) {
+            qualified_pairs_in_critical.insert({xi, xj});
+            qualified_pairs_in_critical.insert({xj, xi});
+        }
+    }
+}
 
-        // 如果满足 qualified 和 valuable 的条件
-        if (is_qualified_pairs(a, b) && is_valuable_for_critical(a, b)) {
-            // 查找 LCQ 中是否已有该 pair
-            auto it = std::find_if(LCQ.begin(), LCQ.end(), [a, b](const LCQEntry &entry) {
-                return entry.var1 == a && entry.var2 == b;
-            });
-            if (it != LCQ.end()) {
-                // 更新已有 pair 的分数
-                it->pairScore = pairScore;
-            } else {
-                // 若不存在则加入新的 LCQEntry
-                LCQ.push_back({a, b, pairScore});
-            }
-        } else {
-            // 如果不满足条件，则从 LCQ 中删除该 pair（如果存在）
-            LCQ.erase(std::remove_if(LCQ.begin(), LCQ.end(), [a, b](const LCQEntry &entry) {
-                return entry.var1 == a && entry.var2 == b;
-            }), LCQ.end());
+// 初始化：遍历 global criticalPairs 中的所有 pair，如果不满足 qualified 条件，则插入
+void build_unqualified_pairs_for_critical() {
+    unqualified_pairs.clear();
+    for (const auto &p : criticalPairs) {
+        int xi = p.first;
+        int xj = p.second;
+        if (!is_qualified_pairs(xi, xj)) {
+            unqualified_pairs.insert({xi, xj});
+            unqualified_pairs.insert({xj, xi});
+        }
+    }
+}
+
+// 构建 valuable 的 critical pair 集合：
+// 遍历 global criticalPairs，对于每个 pair，
+ // 如果 (xi,xj) 或 (xj,xi) 至少有一方向满足 is_valuable_for_critical，则插入对应的顺序，
+ // 如果只有后者满足，则插入 (xj,xi)；否则（两方向都满足或只有正向满足）插入 (xi,xj)。
+void build_valuable_pairs_for_critical() {
+    valuable_pairs_for_critical.clear();
+    for (const auto &p : criticalPairs) {
+        int xi = p.first;
+        int xj = p.second;
+        bool valuable_xy = is_valuable_for_critical(xi, xj);
+        bool valuable_yx = is_valuable_for_critical(xj, xi);
+        if (valuable_xy || valuable_yx) {
+            if (valuable_yx && !valuable_xy)
+                valuable_pairs_for_critical.insert({xj, xi});
+            else
+                valuable_pairs_for_critical.insert({xi, xj});
         }
     }
 }
 
 
-void init_LCQ() {
-    LCQ.clear();
-    // 遍历 criticalVars 中所有的 critical 变量
-    for (int v : criticalVars) {
-        // 如果该变量在 LCP 中有记录且其列表不为空，则更新 LCQ
-        if (LCP.find(v) != LCP.end() && !LCP[v].empty()) {
-            update_LCQ_for_variable(v);
+void update_qualified_pairs_for_critical(int v) {
+    // 遍历 v 的每个邻居 u
+    for (int i = 0; var_neighbor[v][i] != 0; i++) {
+        int u = var_neighbor[v][i];
+        // 如果 u 在 LCP 中没有记录，则跳过
+        if (LCP.find(u) == LCP.end())
+            continue;
+        // 遍历 LCP[u] 中所有 pair
+        for (const auto &p : LCP[u]) {
+            int xi = p.first;
+            int xj = p.second;
+            // 判断 qualified 条件
+            // 判断 qualified 条件
+            if (is_qualified_pairs(xi, xj)) {
+                // 满足 qualified：确保加入 qualified_pairs_in_critical，并删除 unqualified_pairs 中的对应记录（正向和反向）
+                qualified_pairs_in_critical.insert({xi, xj});
+                qualified_pairs_in_critical.insert({xj, xi});
+                unqualified_pairs.erase({xi, xj});
+                unqualified_pairs.erase({xj, xi});
+            } else {
+                // 不满足：删除 qualified_pairs_in_critical 中的记录，并插入到 unqualified_pairs 中（正向和反向）
+                qualified_pairs_in_critical.erase({xi, xj});
+                qualified_pairs_in_critical.erase({xj, xi});
+                unqualified_pairs.insert({xi, xj});
+                unqualified_pairs.insert({xj, xi});
+            }
         }
+    }
+}
+
+void update_valuable_pairs_for_critical(int v) {
+    // 遍历变量 v 的每个邻居 u
+    for (int i = 0; var_neighbor[v][i] != 0; i++) {
+        int u = var_neighbor[v][i];
+        // 如果 u 没有在 LCP 中记录，则直接跳过
+        if (LCP.find(u) == LCP.end())
+            continue;
+        // 遍历 LCP[u] 中的每个 pair
+        for (const auto &p : LCP[u]) {
+            int xi = p.first;
+            int xj = p.second;
+            // 分别检查 (xi, xj) 与 (xj, xi) 是否满足 valuable 条件
+            bool valuable_xy = is_valuable_for_critical(xi, xj);
+            bool valuable_yx = is_valuable_for_critical(xj, xi);
+            if (valuable_xy || valuable_yx) {
+                // 如果只有后者满足，则按 (xj, xi) 存入；否则存 (xi, xj)
+                if (valuable_yx && !valuable_xy)
+                    valuable_pairs_for_critical.insert({xj, xi});
+                else
+                    valuable_pairs_for_critical.insert({xi, xj});
+            } else {
+                // 两方向都不满足，则删除已有记录
+                valuable_pairs_for_critical.erase({xi, xj});
+                valuable_pairs_for_critical.erase({xj, xi});
+            }
+        }
+    }
+}
+
+
+
+void init_LCQ() {
+    std::set<std::pair<int,int>> intersection;
+    std::set_intersection(qualified_pairs_in_critical.begin(), qualified_pairs_in_critical.end(),
+                        valuable_pairs_for_critical.begin(), valuable_pairs_for_critical.end(),
+                        std::inserter(intersection, intersection.begin()));
+    
+    LCQ.clear();
+    for (const auto &p : intersection) {
+        int pairScore = computePairScore(p.first, p.second);
+        LCQ.push_back({p.first, p.second, pairScore});
+    }
+}
+
+void init_LCR() {
+    LCR.clear();
+    // 求 unqualified_pairs 和 valuable_pairs_for_critical 的交集
+    std::set<std::pair<int,int>> intersection;
+    std::set_intersection(unqualified_pairs.begin(), unqualified_pairs.end(),
+                        valuable_pairs_for_critical.begin(), valuable_pairs_for_critical.end(),
+                        std::inserter(intersection, intersection.begin()));
+    // 对交集中的每个 pair 计算分数并存入 LCR
+    for (const auto &p : intersection) {
+        int pairScore = computePairScore(p.first, p.second);
+        LCR.push_back({p.first, p.second, pairScore});
     }
 }
 

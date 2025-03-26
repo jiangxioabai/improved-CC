@@ -6,6 +6,8 @@
 #include <sys/times.h> //these two h files are for linux
 #include <unistd.h>
 
+// 全局变量，初始设为 0
+int key_flip = 0;
 
 
 
@@ -35,26 +37,14 @@ int pick_var_1()
 		return best_var;
 	}
 	
-	/*SD (significant decreasing) mode, the level with aspiration*/
-	best_var = 0;
-	for(i=0; i<unsatvar_stack_fill_pointer; ++i)// 遍历所有不满足子句中的变量
-	{
-		if(score[unsatvar_stack[i]]>sigscore) 
-		{
-			best_var = unsatvar_stack[i];// 先找到一个满足大于sigscore的变量
-			break;
-		}
-	}
-	// 继续遍历不满足子句中的变量找到分数最大的变量，相同则选择最早翻转的变量（和上面相同）
-	for(++i; i<unsatvar_stack_fill_pointer; ++i)
-	{
-		v=unsatvar_stack[i];
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
-	}
-		
-	if(best_var!=0) return best_var;
-	// 如果既没有1-step q-flippable变量，也没有SD变量，则更新子句权重，并随机游走
+	// 2step_q-flippable变量
+
+	
+    key_flip = 1;
+    // reversible 变量
+
+    key_flip = 1;
+	// 如果既没有 q-flippable变量，也没有reversible变量，则更新子句权重，并随机游走
 	/**Diversification Mode**/
 
 	update_clause_weights();
