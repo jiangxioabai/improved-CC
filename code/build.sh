@@ -1,8 +1,7 @@
 #!/bin/bash
 
-mkdir binary
+mkdir -p binary
 
-cd code
 
 make
 

@@ -155,7 +155,7 @@ void init()
 	int			i,j;
 	int			clause;
 	// 初始化var_change，长度为 count，每个队列为空
-	var_change = std::vector<std::deque<int>>(num_vars); 
+	var_change = std::vector<std::deque<int>>(num_vars+1); 
 	// 初始化qualified_pair
 
 
@@ -230,7 +230,7 @@ void init()
                 if (var_lit[v][i].sense == cur_soln[v])
                     score[v]--;  // 子句仅由当前变量满足，则得分减1
 					orig_score[v]--;  // 子句仅由当前变量满足，则得分减1
-                if (noncritical_clauses.find(c) != noncritical_clauses.end() && find(LN.begin(), LN.end(), c) == LN.end())
+                if (noncritical_clauses.find(c) != noncritical_clauses.end() && find(LN[v].begin(), LN[v].end(), c) == LN[v].end())
                     LN[v].push_back(c);
             }
             else if (sat_count[c] == 0) {
