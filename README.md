@@ -55,6 +55,6 @@ To run the solver:
 
 ---
 
-**TL;DR**：准备按上述猜想继续修改实验策略。
+**TLDR**：准备按上述猜想继续修改实验策略。
 
 </details>
