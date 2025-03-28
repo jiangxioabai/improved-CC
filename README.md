@@ -29,14 +29,39 @@ To run the solver:
 
 ### 实验设置
 
-- 每个 instance 运行 10 次  
-- 每次运行设置 300 秒截断时间  
+1. 
+    - 每个 instance 运行 10 次  
+    - 每次运行设置 300 秒截断时间   
 
-
+2. 
+    - 每个 instance 运行 1 次  
+    - 每次运行设置 3600 秒截断时间 
 
 ---
+## todo
+
+- [x] 300s 截断时间可能太短，尝试延长至 3600 秒  
+- [x] 换用 SATLIB 中的 benchmark，经验上这些更简单  
+- [ ] CCAnr 原版为结构化问题设计，可能需仿照 swcca 修改以适配 random 问题  
+
 
 ## 详细记录
+
+
+<details>
+
+<summary>3/28</summary>
+
+
+### 实验效果
+
+试了todo的前两项，效果不明显，准备详细检查一下代码先
+
+
+
+</details>
+
+
 
 <details>
 
