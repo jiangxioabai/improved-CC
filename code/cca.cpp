@@ -29,25 +29,25 @@ int pick_var()
 		return best_var;
 	}
 	
-	/*SD (significant decreasing) mode, the level with aspiration*/
-	best_var = 0;
-	for(i=0; i<unsatvar_stack_fill_pointer; ++i)
-	{
-		if(score[unsatvar_stack[i]]>sigscore) 
-		{
-			best_var = unsatvar_stack[i];
-			break;
-		}
-	}
+	// /*SD (significant decreasing) mode, the level with aspiration*/
+	// best_var = 0;
+	// for(i=0; i<unsatvar_stack_fill_pointer; ++i)
+	// {
+	// 	if(score[unsatvar_stack[i]]>sigscore) 
+	// 	{
+	// 		best_var = unsatvar_stack[i];
+	// 		break;
+	// 	}
+	// }
 
-	for(++i; i<unsatvar_stack_fill_pointer; ++i)
-	{
-		v=unsatvar_stack[i];
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
-	}
+	// for(++i; i<unsatvar_stack_fill_pointer; ++i)
+	// {
+	// 	v=unsatvar_stack[i];
+	// 	if(score[v]>score[best_var]) best_var = v;
+	// 	else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
+	// }
 		
-	if(best_var!=0) return best_var;
+	// if(best_var!=0) return best_var;
 		
 	/**Diversification Mode**/
 
@@ -61,9 +61,9 @@ int pick_var()
 	for(k=1; k<clause_lit_count[c]; ++k)
 	{
 		v=clause_c[k].var_num;
-		//if(time_stamp[v]<time_stamp[best_var]) best_var = v;
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
+		if(time_stamp[v]<time_stamp[best_var]) best_var = v;
+		// if(score[v]>score[best_var]) best_var = v;
+		// else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
 	}
 	
 	return best_var;

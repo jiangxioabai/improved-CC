@@ -122,7 +122,7 @@ int build_instance(char *filename)
 	int		v,c;//var, clause
 	
 	ifstream infile(filename);
-	if(infile==NULL)
+	if(!infile)
 		return 0;
 
 	/*** build problem data structures of the instance ***/
