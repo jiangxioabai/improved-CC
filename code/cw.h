@@ -84,21 +84,7 @@ void set_clause_weighting()
 {	
 	threshold=300;
 	p_scale=0.3;
-	if(q_init==0)
-	{
-		if(ratio<=15) q_scale=0;
-		else q_scale=0.7;
-	}
-	else 
-	{
-		if(q_scale<0.5)  //0
-			q_scale = 0.7;
-		else
-			q_scale = 0;
-	}
-	
-	scale_ave=(threshold+1)*q_scale;
-	q_init = 1;
+	scale_ave=(threshold+1)*0.7;
 }
 
 #endif
