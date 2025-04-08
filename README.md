@@ -42,11 +42,29 @@ To run the solver:
 
 - [x] 300s 截断时间可能太短，尝试延长至 3600 秒  
 - [x] 换用 SATLIB 中的 benchmark，经验上这些更简单  
-- [ ] CCAnr 原版为结构化问题设计，可能需仿照 swcca 修改以适配 random 问题  
+- [x] CCAnr 原版为结构化问题设计，可能需仿照 swcca 修改以适配 random 问题  
+- [ ] 详细对照SWCC,SWCCA,查看代码的问题。
 
 
 ## 详细记录
 
+<details>
+
+<summary>4/8</summary>
+
+### 做了啥
+1. 详细查阅了一下蔡老师的博士论文以及相关参考论文
+2. 按照博士论文描述的，实现了专注于random例子的SWCC和SWCCA算法
+
+### 计划
+1. 仔细检查我写的代码是否与论文一致
+2. 多加一点统计信息，看看时间花在哪里
+3. 与SWCC,SWCCA对照，查看问题
+
+
+
+
+</details>
 
 <details>
 

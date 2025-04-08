@@ -197,9 +197,9 @@ int pick_var_1()
 	for(k=1; k<clause_lit_count[c]; ++k)
 	{
 		v=clause_c[k].var_num;
-		//if(time_stamp[v]<time_stamp[best_var]) best_var = v;
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
+		if(time_stamp[v]<time_stamp[best_var]) best_var = v;
+		// if(score[v]>score[best_var]) best_var = v;
+		// else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
 	}
 	
 	return best_var;
