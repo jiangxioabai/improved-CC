@@ -37,8 +37,27 @@ int pick_var_1()
 		return best_var;
 	}
 	
-	// 2step_q-flippable变量
+
+	/*SD (significant decreasing) mode, the level with aspiration*/
 	best_var = 0;
+	for(i=0; i<unsatvar_stack_fill_pointer; ++i)// 遍历所有不满足子句中的变量
+	{
+		if(score[unsatvar_stack[i]]>sigscore) 
+		{
+			best_var = unsatvar_stack[i];// 先找到一个满足大于sigscore的变量
+			break;
+		}
+	}
+	// 继续遍历不满足子句中的变量找到分数最大的变量，相同则选择最早翻转的变量（和上面相同）
+	for(++i; i<unsatvar_stack_fill_pointer; ++i)
+	{
+		v=unsatvar_stack[i];
+		if(score[v]>score[best_var]) best_var = v;
+		else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
+	}
+
+	// 2step_q-flippable变量
+
 	// 先遍历critical ，再遍历noncritical，判断是否是qualified_pairs，再判断是否是valuable
 	pair<int,int> pairs;
 	int maxscore = 0;
@@ -209,96 +228,6 @@ int pick_var_1()
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//pick a var to be flip // 从候选中选择一个变量进行翻转
-int pick_var()
-{
-	int         i,k,c,v;
-	int         best_var;
-	lit*		clause_c;
-	
-	/**Greedy Mode**/
-	/*CCD (configuration changed decreasing) mode, the level with configuation chekcing*/
-	if(goodvar_stack_fill_pointer>0) // 如果存在1-step q-flippable变量，goodvar_stack存的1-step q-flippable变量
-	{
-		best_var = goodvar_stack[0];// 选择第一个变量作为候选
-		// 遍历所有1-step q-flippable变量，选分数最高的变量，相同则选上次翻转最早的变量，这里time_stamp[]初始化应该是0，表示上次反转时间
-		for(i=1; i<goodvar_stack_fill_pointer; ++i)
-		{
-			v=goodvar_stack[i];
-			if(score[v]>score[best_var]) best_var = v;
-			else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
-		}
-		
-		return best_var;
-	}
-
-
-
-	/*2-step */
-
-
-
-	/*SD (significant decreasing) mode, the level with aspiration*/
-	// best_var = 0;
-	// for(i=0; i<unsatvar_stack_fill_pointer; ++i)// 遍历所有不满足子句中的变量
-	// {
-	// 	if(score[unsatvar_stack[i]]>sigscore) 
-	// 	{
-	// 		best_var = unsatvar_stack[i];// 先找到一个满足大于sigscore的变量
-	// 		break;
-	// 	}
-	// }
-	// // 继续遍历不满足子句中的变量找到分数最大的变量，相同则选择最早翻转的变量（和上面相同）
-	// for(++i; i<unsatvar_stack_fill_pointer; ++i)
-	// {
-	// 	v=unsatvar_stack[i];
-	// 	if(score[v]>score[best_var]) best_var = v;
-	// 	else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
-	// }
-		
-	if(best_var!=0) return best_var;
-	// 如果既没有1-step q-flippable变量，也没有SD变量，则更新子句权重，并随机游走
-	/**Diversification Mode**/
-
-	update_clause_weights();
-	
-	/*focused random walk*/
-
-	c = unsat_stack[rand()%unsat_stack_fill_pointer];//随机选择一个不满足子句
-	clause_c = clause_lit[c];
-	best_var = clause_c[0].var_num;//将子句中的第一个变量作为候选
-	// 同样倾向于选择该随机子句中分数最高的变量，相同则选上次翻转最早的变量
-	for(k=1; k<clause_lit_count[c]; ++k)
-	{
-		v=clause_c[k].var_num;
-		//if(time_stamp[v]<time_stamp[best_var]) best_var = v;
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
-	}
-	
-	return best_var;
-}
-
-
 //set functions in the algorithm 设置子句权重
 void settings()
 {
@@ -314,7 +243,7 @@ void local_search(int max_flips)
 		//find a solution
 		if(unsat_stack_fill_pointer==0) return;
 
-		flipvar = pick_var();
+		flipvar = pick_var_1();
 
 		flip(flipvar);
 
