@@ -245,7 +245,7 @@ void local_search(int max_flips)
 		//find a solution
 		if(unsat_stack_fill_pointer==0) return;
 
-		flipvar = pick_var1();
+		flipvar = pick_var_1();
 
 		flip(flipvar);
 
