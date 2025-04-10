@@ -3,11 +3,22 @@
 #include "cw.h"
 #include "preprocessor.h"
 #include <functional> 
-
+#include <signal.h>
+#include <stdlib.h>
+#include <iostream>
 #include <sys/times.h> //these two h files are for linux
 #include <unistd.h>
 
 #include <functional>  // 引入std::function
+
+
+
+void handle_sigterm(int signum) {
+    // 输出翻转（flips）次数和尝试次数
+    std::cerr << "Timeout reached!" << std::endl;
+    std::cerr << "Flips (steps): " << step << ", Tries: " << tries << std::endl;
+    exit(0);  // 正常退出，这样 gmon.out 能够写入
+}
 
 
 int pick_var_1()
@@ -232,7 +243,8 @@ int main(int argc, char* argv[])
 	int     seed,i;
 	int		satisfy_flag=0;
 	struct 	tms start, stop;
-    
+    // 注册 SIGTERM 信号处理器
+    signal(SIGTERM, handle_sigterm);
     cout<<"c This is CCAnr [Version: 2013.4.18] [Author: Shaowei Cai]."<<endl;	
 	
 	times(&start);
