@@ -448,10 +448,6 @@ void flip(int flipvar)
 	for(p=var_neighbor[flipvar]; (v=*p)!=0; p++)
 	{
 		conf_change[v] = 1;
-		if (key_flip == 1){
-		    U_array[v] = true;
-			LU.push_back(v);
-		}
 		// 分数大于0，且还未在goodvar_stack，则入栈
 		if(score[v]>0 && already_in_goodvar_stack[v] ==0)
 		{
@@ -478,7 +474,7 @@ void flip(int flipvar)
 
 
 
-bool is_qualified_pairs(pair<int,int> pairs) {
+bool is_qualified_pairs(const std::pair<int, int>& pairs) {
     // 取出两个变量对应的变化队列
     std::deque<int>& dq_xi = var_change[pairs.first];
     std::deque<int>& dq_xj = var_change[pairs.second];

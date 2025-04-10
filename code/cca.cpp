@@ -2,19 +2,14 @@
 #include "cca.h"
 #include "cw.h"
 #include "preprocessor.h"
+#include <functional> 
 
 #include <sys/times.h> //these two h files are for linux
 #include <unistd.h>
 
-// 全局变量，初始设为 0
-int key_flip = 0;
+#include <functional>  // 引入std::function
 
 
-
-
-
-// 子句编号从0开始，变量编号从1开始
-// var_neighbor[i][j]表示变量i的第j个邻居下标；如果是0，则表示数组末尾
 int pick_var_1()
 {
 	int         i,k,c,v;
@@ -37,27 +32,8 @@ int pick_var_1()
 		return best_var;
 	}
 	
-
-	/*SD (significant decreasing) mode, the level with aspiration*/
-	best_var = 0;
-	for(i=0; i<unsatvar_stack_fill_pointer; ++i)// 遍历所有不满足子句中的变量
-	{
-		if(score[unsatvar_stack[i]]>sigscore) 
-		{
-			best_var = unsatvar_stack[i];// 先找到一个满足大于sigscore的变量
-			break;
-		}
-	}
-	// 继续遍历不满足子句中的变量找到分数最大的变量，相同则选择最早翻转的变量（和上面相同）
-	for(++i; i<unsatvar_stack_fill_pointer; ++i)
-	{
-		v=unsatvar_stack[i];
-		if(score[v]>score[best_var]) best_var = v;
-		else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
-	}
-
 	// 2step_q-flippable变量
-
+	best_var = 0;
 	// 先遍历critical ，再遍历noncritical，判断是否是qualified_pairs，再判断是否是valuable
 	pair<int,int> pairs;
 	int maxscore = 0;
@@ -198,10 +174,7 @@ int pick_var_1()
 	}
 	if(best_var!=0) return best_var;
 
-    key_flip = 1;
-    // reversible 变量
 
-    key_flip = 1;
 	// 如果既没有 q-flippable变量，也没有reversible变量，则更新子句权重，并随机游走
 	/**Diversification Mode**/
 
@@ -223,6 +196,8 @@ int pick_var_1()
 	
 	return best_var;
 }
+
+
 
 
 

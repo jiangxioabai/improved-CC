@@ -35,6 +35,8 @@ bool isCriticalVar[MAX_VARS];
 
 // 非关键 pair集合：键为 canonical pair (min, max)，值为出现该 pair 的不同子句编号列表
 map<pair<int,int>, int> noncriticalpairs;
+
+std::set<std::pair<int, int>> noncritical_set;
 // 关键 pair集合：存储那些在不同子句中至少出现两次的 pair（canonical 形式）
 set<pair<int,int>> criticalpairs;
 
@@ -374,6 +376,9 @@ void build_neighbor_relation()
 	}
 	// 释放动态分配的数组
 	delete[] neighbor_flag; neighbor_flag=NULL;
+	for (const auto& pair : noncriticalpairs) {
+		noncritical_set.insert(pair.first);
+	}
 }
 
 std::set<int> build_critical_vars() {
