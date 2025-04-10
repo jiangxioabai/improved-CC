@@ -70,7 +70,7 @@ int		max_clause_len;
 int		min_clause_len;
 int		formula_len=0;
 double	avg_clause_len;
-double 	ratio;
+double 	instance_ratio;
 
 /* literal arrays */				
 lit*	var_lit[MAX_VARS];				//var_lit[i][j] means the j'th literal of var i.
@@ -175,7 +175,7 @@ int build_instance(char *filename)
 		infile.getline(line,1000000);
 
 	sscanf(line, "%s %s %d %d", tempstr1, tempstr2, &num_vars, &num_clauses);
-	ratio = double(num_clauses)/num_vars;
+	instance_ratio = double(num_clauses)/num_vars;
 	
 	if(num_vars>=MAX_VARS || num_clauses>=MAX_CLAUSES)
 	{

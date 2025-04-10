@@ -10,15 +10,45 @@
 #include <unistd.h>
 
 #include <functional>  // 引入std::function
+#include <chrono> // 用于计时
 
+// 在全局作用域或main函数之前定义统计变量
+double step1_flip_time = 0, step2_flip_time = 0, reversible_flip_time = 0, diversification_flip_time = 0;
+int step1_flip_count = 0, step2_flip_count = 0, reversible_flip_count = 0, diversification_flip_count = 0;
 
 
 void handle_sigterm(int signum) {
-    // 输出翻转（flips）次数和尝试次数
     std::cerr << "Timeout reached!" << std::endl;
-    std::cerr << "Flips (steps): " << step << ", Tries: " << tries << std::endl;
-    exit(0);  // 正常退出，这样 gmon.out 能够写入
+    std::cerr << "Steps: " << step << ", Tries: " << tries << std::endl;
+    
+    std::cerr << "1-step flips: " << step1_flip_count 
+            << ", Total time: " << step1_flip_time << " s"
+            << ", Average time: " 
+            << (step1_flip_count > 0 ? step1_flip_time / step1_flip_count : 0) << " s" 
+            << std::endl;
+    
+    std::cerr << "2-step flips: " << step2_flip_count 
+            << ", Total time: " << step2_flip_time << " s"
+            << ", Average time: " 
+            << (step2_flip_count > 0 ? step2_flip_time / step2_flip_count : 0) << " s"
+            << std::endl;
+    
+    std::cerr << "Reversible flips: " << reversible_flip_count 
+            << ", Total time: " << reversible_flip_time << " s"
+            << ", Average time: " 
+            << (reversible_flip_count > 0 ? reversible_flip_time / reversible_flip_count : 0) << " s"
+            << std::endl;
+    
+    std::cerr << "Diversification flips: " << diversification_flip_count 
+            << ", Total time: " << diversification_flip_time << " s"
+            << ", Average time: " 
+            << (diversification_flip_count > 0 ? diversification_flip_time / diversification_flip_count : 0) << " s"
+            << std::endl;
+    
+    std::cout.flush();
+    exit(0);
 }
+
 
 
 int pick_var_1()
@@ -26,11 +56,12 @@ int pick_var_1()
 	int         i,k,c,v;
 	int         best_var;
 	lit*		clause_c;
-	
+
 	/**Greedy Mode**/
 	/*CCD (configuration changed decreasing) mode, the level with configuation chekcing*/
 	if(goodvar_stack_fill_pointer>0) // 如果存在1-step q-flippable变量，goodvar_stack存的1-step q-flippable变量
 	{
+		auto step1_start = std::chrono::high_resolution_clock::now();
 		best_var = goodvar_stack[0];// 选择第一个变量作为候选
 		// 遍历所有1-step q-flippable变量，选分数最高的变量，相同则选上次翻转最早的变量，这里time_stamp[]初始化应该是0，表示上次反转时间
 		for(i=1; i<goodvar_stack_fill_pointer; ++i)
@@ -39,11 +70,18 @@ int pick_var_1()
 			if(score[v]>score[best_var]) best_var = v;
 			else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
 		}
-		
+        // 记录 1-step 的时间
+        auto step1_end = std::chrono::high_resolution_clock::now();
+        step1_flip_time += std::chrono::duration<double>(step1_end - step1_start).count();
+        step1_flip_count++;
+        return best_var;
+
+
 		return best_var;
 	}
 	
 	// 2step_q-flippable变量
+	auto step2_start = std::chrono::high_resolution_clock::now();
 	best_var = 0;
 	// 先遍历critical ，再遍历noncritical，判断是否是qualified_pairs，再判断是否是valuable
 	pair<int,int> pairs;
@@ -116,8 +154,14 @@ int pick_var_1()
 			}
 		}
 	}
-	if(best_var!=0) return best_var;
 
+    // 记录 2-step 的时间
+    auto step2_end = std::chrono::high_resolution_clock::now();
+	step2_flip_time += std::chrono::duration<double>(step2_end - step2_start).count();
+    step2_flip_count++;
+    if (best_var != 0) return best_var;
+
+	auto reversible_start = std::chrono::high_resolution_clock::now();
 	// reversible变量
 	for(auto iter = criticalpairs.begin(); iter != criticalpairs.end(); ++iter){
 		pairs = *iter;
@@ -183,8 +227,12 @@ int pick_var_1()
 			}
 		}
 	}
-	if(best_var!=0) return best_var;
 
+
+    auto reversible_end = std::chrono::high_resolution_clock::now();
+    reversible_flip_time += std::chrono::duration<double>(reversible_end - reversible_start).count();
+    reversible_flip_count++;
+    if (best_var != 0) return best_var;
 
 	// 如果既没有 q-flippable变量，也没有reversible变量，则更新子句权重，并随机游走
 	/**Diversification Mode**/
@@ -192,7 +240,7 @@ int pick_var_1()
 	update_clause_weights();
 	
 	/*focused random walk*/
-
+	auto diversifacation_start = std::chrono::high_resolution_clock::now();
 	c = unsat_stack[rand()%unsat_stack_fill_pointer];//随机选择一个不满足子句
 	clause_c = clause_lit[c];
 	best_var = clause_c[0].var_num;//将子句中的第一个变量作为候选
@@ -204,7 +252,11 @@ int pick_var_1()
 		// if(score[v]>score[best_var]) best_var = v;
 		// else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
 	}
-	
+    // 记录 diversification 的时间
+    auto  diversifacation_end = std::chrono::high_resolution_clock::now();
+    diversification_flip_time += std::chrono::duration<double>(diversifacation_end - diversifacation_start).count();
+    diversification_flip_count++; // 增加次数
+
 	return best_var;
 }
 
@@ -266,10 +318,11 @@ int main(int argc, char* argv[])
     
 	cout<<"c Instance: Number of variables = "<<num_vars<<endl;
 	cout<<"c Instance: Number of clauses = "<<num_clauses<<endl;
-	cout<<"c Instance: Ratio = "<<ratio<<endl;
+	cout<<"c Instance: Ratio = "<<instance_ratio<<endl;
 	cout<<"c Instance: Formula length = "<<formula_len<<endl;
 	cout<<"c Instance: Avg (Min,Max) clause length = "<<avg_clause_len<<" ("<<min_clause_len<<","<<max_clause_len<<")"<<endl;
 	cout<<"c Algorithmic: Random seed = "<<seed<<endl;
+
     //多次局部搜索
 	for (tries = 0; tries <= max_tries; tries++)
 	{
@@ -299,6 +352,12 @@ int main(int argc, char* argv[])
     cout<<"c solveSteps = "<<tries<<" tries + "<<step<<" steps (each try has "<<max_flips<<" steps)."<<endl;
     cout<<"c solveTime = "<<comp_time<<endl;
 	 
+    // 输出统计数据：四种 flip 类型的时间和次数
+    cout << "1-step flips: " << step1_flip_count << ", Total time: " << step1_flip_time << " seconds" << endl;
+    cout << "2-step flips: " << step2_flip_count << ", Total time: " << step2_flip_time << " seconds" << endl;
+    cout << "Reversible flips: " << reversible_flip_count << ", Total time: " << reversible_flip_time << " seconds" << endl;
+    cout << "Diversification flips: " << diversification_flip_count << ", Total time: " << diversification_flip_time << " seconds" << endl;
+
     free_memory();
 
     return 0;
