@@ -1,0 +1,105 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 996  of event 'cycles'
+# Event count (approx.): 24988362606
+#
+# Children      Self  Command  Shared Object      Symbol                                                                                                                                                                                                                                            
+# ........  ........  .......  .................  ..................................................................................................................................................................................................................................................
+#
+    32.13%    31.61%  CCAnr    CCAnr              [.] std::_Rb_tree<std::pair<int, int>, std::pair<std::pair<int, int> const, int>, std::_Select1st<std::pair<std::pair<int, int> const, int> >, std::less<std::pair<int, int> >, std::allocator<std::pair<std::pair<int, int> const, int> > >::find
+            |          
+             --31.77%--std::_Rb_tree<std::pair<int, int>, std::pair<std::pair<int, int> const, int>, std::_Select1st<std::pair<std::pair<int, int> const, int> >, std::less<std::pair<int, int> >, std::allocator<std::pair<std::pair<int, int> const, int> > >::find
+
+    26.00%    25.10%  CCAnr    CCAnr              [.] is_valuable_for_noncritical
+            |          
+            |--23.67%--is_valuable_for_noncritical
+            |          
+            |--1.72%--pick_var_1
+            |          
+             --0.52%--std::_Rb_tree<std::pair<int, int>, std::pair<std::pair<int, int> const, int>, std::_Select1st<std::pair<std::pair<int, int> const, int> >, std::less<std::pair<int, int> >, std::allocator<std::pair<std::pair<int, int> const, int> > >::find
+
+    17.55%    17.35%  CCAnr    CCAnr              [.] is_qualified_pairs
+            |
+            ---is_qualified_pairs
+
+    11.38%    11.28%  CCAnr    CCAnr              [.] computePairDeltaOverlap
+            |          
+             --10.99%--computePairDeltaOverlap
+
+     8.95%     6.82%  CCAnr    CCAnr              [.] pick_var_1
+            |          
+            |--8.14%--pick_var_1
+            |          
+             --0.51%--std::_Rb_tree_increment
+
+     7.22%     6.71%  CCAnr    CCAnr              [.] std::_Rb_tree_increment
+            |          
+             --6.81%--std::_Rb_tree_increment
+
+     0.36%     0.00%  CCAnr    [unknown]          [.] 0000000000000000
+     0.29%     0.29%  CCAnr    CCAnr              [.] build_neighbor_relation
+     0.20%     0.20%  CCAnr    CCAnr              [.] __libc_setup_tls
+     0.20%     0.00%  CCAnr    [unknown]          [.] 0x4c5641001233533d
+     0.20%     0.20%  CCAnr    CCAnr              [.] flip
+     0.11%     0.11%  CCAnr    CCAnr              [.] std::_Rb_tree_insert_and_rebalance
+     0.11%     0.11%  timeout  [kernel.kallsyms]  [k] __d_lookup_rcu
+     0.11%     0.00%  timeout  ld-2.31.so         [.] _dl_map_object
+     0.11%     0.00%  timeout  ld-2.31.so         [.] __xstat
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] entry_SYSCALL_64_after_hwframe
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] do_syscall_64
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] __x64_sys_newstat
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] __do_sys_newstat
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] vfs_statx
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] user_path_at_empty
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] filename_lookup
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] path_lookupat.isra.0
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] link_path_walk.part.0
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] walk_component
+     0.11%     0.00%  timeout  [kernel.kallsyms]  [k] lookup_fast
+     0.10%     0.00%  CCAnr    [unknown]          [.] 0x0000000000000008
+     0.10%     0.00%  CCAnr    [unknown]          [.] 0x00007f96cbe00260
+     0.10%     0.10%  CCAnr    [kernel.kallsyms]  [k] prepare_exit_to_usermode
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] swapgs_restore_regs_and_return_to_usermode
+     0.10%     0.10%  CCAnr    [kernel.kallsyms]  [k] native_read_msr
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] apic_timer_interrupt
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] smp_apic_timer_interrupt
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] hrtimer_interrupt
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] __hrtimer_run_queues
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] tick_sched_timer
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] tick_sched_handle
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] update_process_times
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] scheduler_tick
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] task_tick_fair
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] update_load_avg
+     0.10%     0.00%  CCAnr    [kernel.kallsyms]  [k] intel_pstate_update_util
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] x86_pmu_enable
+     0.00%     0.00%  timeout  libc-2.31.so       [.] __fork
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] ret_from_fork
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] schedule_tail
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] finish_task_switch
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] __perf_event_task_sched_in
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] perf_pmu_enable.part.0
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] native_flush_tlb_one_user
+     0.00%     0.00%  perf     [unknown]          [k] 0x00007f35e810e17b
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] entry_SYSCALL_64_after_hwframe
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] perf_event_exec
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] do_syscall_64
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] __x64_sys_execve
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] __do_execve_file.isra.0
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] search_binary_handler
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] load_elf_binary
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] setup_new_exec
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] perf_event_addr_filters_exec
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] perf_iterate_ctx
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] native_apic_mem_write
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] native_apic_mem_write
+     0.00%     0.00%  perf     [kernel.kallsyms]  [k] intel_bts_enable_local
+     0.00%     0.00%  timeout  [kernel.kallsyms]  [k] intel_bts_enable_local
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

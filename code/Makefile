@@ -1,5 +1,6 @@
 CCAnr: cca.cpp cca.h basis.h cw.h preprocessor.h
-	g++ -O2 -static -o CCAnr cca.cpp
+	g++ -fsanitize=address -g -O0 -o CCAnr cca.cpp
+
 
 
 
