@@ -20,7 +20,7 @@ std::pair<int, int> P_C[MAX_CLAUSES];
 
 // 在全局作用域或main函数之前定义统计变量
 double step1_flip_time = 0, step2_flip_time = 0, reversible_flip_time = 0, diversification_flip_time = 0;
-int step1_flip_count = 0, step2_flip_count = 0, reversible_flip_count = 0, diversification_flip_count = 0;
+int step1_flip_count = 0, sd_flip_count = 0, step2_flip_count = 0, reversible_flip_count = 0, diversification_flip_count = 0;
 
 void handle_sigterm(int signum)
 {
@@ -31,6 +31,9 @@ void handle_sigterm(int signum)
 			  << ", Total time: " << step1_flip_time << " s"
 			  << ", Average time: "
 			  << (step1_flip_count > 0 ? step1_flip_time / step1_flip_count : 0) << " s"
+			  << std::endl;
+
+	std::cerr << "sd flips: " << sd_flip_count
 			  << std::endl;
 
 	std::cerr << "2-step flips: " << step2_flip_count
@@ -54,6 +57,8 @@ void handle_sigterm(int signum)
 	std::cout.flush();
 	exit(0);
 }
+static int last_picked_var = 0;
+// 初始为0，表示尚未有上一次选的变量
 
 int pick_var_1()
 {
@@ -79,17 +84,53 @@ int pick_var_1()
 		auto step1_end = std::chrono::high_resolution_clock::now();
 		step1_flip_time += std::chrono::duration<double>(step1_end - step1_start).count();
 		step1_flip_count++;
+		// 更新 last_picked_var
+		last_picked_var = best_var;
+		// cout << "[DEBUG] 1-step q-flippable var = " << best_var
+		// 	 << ", score[" << best_var << "]=" << score[best_var]
+		// 	 << ", original score=" << score[best_var]
+		// 	 << std::endl;
+		return best_var;
+	}
+
+	/*SD (significant decreasing) mode, the level with aspiration*/
+	best_var = 0;
+	for (i = 0; i < unsatvar_stack_fill_pointer; ++i)
+	{
+		if (score[unsatvar_stack[i]] > sigscore)
+		{
+			best_var = unsatvar_stack[i];
+			break;
+		}
+	}
+
+	for (++i; i < unsatvar_stack_fill_pointer; ++i)
+	{
+		v = unsatvar_stack[i];
+		if (score[v] > score[best_var])
+			best_var = v;
+		else if (score[v] == score[best_var] && time_stamp[v] < time_stamp[best_var])
+			best_var = v;
+	}
+
+	if (best_var != 0)
+	{
+		sd_flip_count++;
+		// 更新 last_picked_var
+		last_picked_var = best_var;
 		return best_var;
 	}
 
 	updateNonCriticalClausesInLN(step);
-	cout << "c step: " << step << endl;
+
 	// 2step_q-flippable变量
 	auto step2_start = std::chrono::high_resolution_clock::now();
 	best_var = 0;
 	// 先遍历critical ，再遍历noncritical，判断是否是qualified_pairs，再判断是否是valuable
 	pair<int, int> pairs;
 	int maxscore = 0;
+	// 调试：看看 LCQ 是否有数据
+	// cout << "[DEBUG] LCQ size = " << LCQ.size() << std::endl;
 	for (const auto &entry : LCQ)
 	{ // 假设 LCQ_unordered 是 unordered_map<pair<int,int>, int, pair_hash>
 		if (entry.second > maxscore)
@@ -98,30 +139,58 @@ int pick_var_1()
 			best_var = entry.first.first;
 		}
 	}
+
 	// noncritical
 	auto uqvresult = getBestUQFirstVarAndScore();
 	int firstVar = uqvresult.first;
 	int uqScore = uqvresult.second;
-	if (uqScore > maxscore)
+	if (firstVar != 0 && uqScore > maxscore)
 	{
+		// cout << "[DEBUG] getBestUQFirstVarAndScore => firstVar = "
+		// 	 << firstVar << ", uqcore=" << uqScore << std::endl;
 		maxscore = uqScore;
 		best_var = firstVar;
+		// cout << "[DEBUG] 2-step q-flippable var from LNQ = " << std::endl;
 	}
+	// else{
+	// 	cout << "[DEBUG] 2-step q-flippable var from LCQ = " << std::endl;
+	// }
 
 	// 记录 2-step 的时间
 	auto step2_end = std::chrono::high_resolution_clock::now();
 	step2_flip_time += std::chrono::duration<double>(step2_end - step2_start).count();
-	if (best_var != 0 && score[best_var] > sigscore)
+	if (best_var != 0)
 	{
+
+
+		// // 如果想判断是否“连续”选同一个变量:
+		// bool isConsecutive = (best_var == last_picked_var);
+		// std::cerr << "   => consecutive pick: "
+		//     << (isConsecutive ? "YES" : "NO") << std::endl;
 		step2_flip_count++;
+		// 更新 last_picked_var
+		last_picked_var = best_var;
 		return best_var;
 	}
-
-
+	// else
+	// {
+	// 	// 如果没进入 return，看看具体是哪个条件失败
+	// 	if (best_var == 0)
+	// 	{
+	// 		std::cerr << "[DEBUG] 2-step no best_var found (best_var=0)" << std::endl;
+	// 	}
+	// 	else
+	// 	{
+	// 		std::cerr << "[DEBUG] 2-step best_var=" << best_var
+	// 				  << ", but score[" << best_var << "]="
+	// 				  << score[best_var]
+	// 				  << " <= sigscore=" << sigscore << std::endl;
+	// 	}
+	// }
 
 	// reversible变量
 	auto reversible_start = std::chrono::high_resolution_clock::now();
-    maxscore=0;
+	maxscore = 0;
 	for (const auto &entry : LCR)
 	{ // 假设 LCQ_unordered 是 unordered_map<pair<int,int>, int, pair_hash>
 		if (entry.second > maxscore)
@@ -130,21 +199,33 @@ int pick_var_1()
 			best_var = entry.first.first;
 		}
 	}
-
+	// cout << "[DEBUG] from LCR manual iteration => best_var=" << best_var 
+	// << ", maxscore=" << maxscore << endl;
 	// noncritical
 	auto result = getBestRevFirstVarAndScore();
+
 	int bestVar = result.first;
 	int bestScore = result.second;
-
-	if (bestScore > maxscore)
+	// cout << "[DEBUG] getBestRevFirstVarAndScore => bestVar=" 
+	// << bestVar << ", bestScore=" << bestScore << endl;
+	if (bestVar != 0 && bestScore > maxscore)
 	{
+		// cout << "[DEBUG] getBestRevFirstVarAndScore => bestVar = "
+		// 	 << bestVar << ", score=" << bestScore << std::endl;
+		// cout << "[DEBUG] reversible var from LNR " << std::endl;
 		maxscore = bestScore;
 		best_var = bestVar;
 	}
 	auto reversible_end = std::chrono::high_resolution_clock::now();
 	reversible_flip_time += std::chrono::duration<double>(reversible_end - reversible_start).count();
-	if (best_var != 0 && score[best_var] > sigscore)
+	
+	
+	if (best_var != 0)
 	{
+		// 在进行 return best_var 之前:
+		// std::cerr << "[DEBUG pick_var_1] step=" << step
+		//         << " pick current=" << best_var
+		//         << ", last=" << last_picked_var << std::endl;
 		reversible_flip_count++;
 		return best_var;
 	}
@@ -172,7 +253,8 @@ int pick_var_1()
 	auto diversifacation_end = std::chrono::high_resolution_clock::now();
 	diversification_flip_time += std::chrono::duration<double>(diversifacation_end - diversifacation_start).count();
 	diversification_flip_count++; // 增加次数
-
+	// 更新 last_picked_var
+	last_picked_var = best_var;
 	return best_var;
 }
 

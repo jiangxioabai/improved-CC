@@ -107,6 +107,61 @@ set<pair<int, int>> unqualified_pairs;
 #define pop(stack) stack[--stack##_fill_pointer]			   // pop则_fill_pointer--
 #define push(item, stack) stack[stack##_fill_pointer++] = item // push则_fill_pointer++
 
+
+void removeClauseFromLNQ(int c, int oldScore)
+{
+    // 在 LNQ 中查找 oldScore
+    auto it = LNQ.find(oldScore);
+    if (it == LNQ.end()) {
+        // 说明 LNQ 中没有分数=oldScore 的条目，无需删除
+        return;
+    }
+
+    // 取到存放旧分数=oldScore 的子句队列
+    std::deque<int> & dq = it->second;
+
+    // 在 dq 里找到子句 c 并删除
+    // 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
+    for (auto dit = dq.begin(); dit != dq.end(); ++dit) {
+        if (*dit == c) {
+            dq.erase(dit);
+            break; 
+        }
+    }
+
+    // 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
+    if (dq.empty()) {
+        LNQ.erase(it); 
+    }
+}
+
+void removeClauseFromLNR(int c, int oldScore)
+{
+    // 在 LNQ 中查找 oldScore
+    auto it = LNR.find(oldScore);
+    if (it == LNR.end()) {
+        // 说明 LNQ 中没有分数=oldScore 的条目，无需删除
+        return;
+    }
+
+    // 取到存放旧分数=oldScore 的子句队列
+    std::deque<int> & dq = it->second;
+
+    // 在 dq 里找到子句 c 并删除
+    // 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
+    for (auto dit = dq.begin(); dit != dq.end(); ++dit) {
+        if (*dit == c) {
+            dq.erase(dit);
+            break; 
+        }
+    }
+
+    // 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
+    if (dq.empty()) {
+        LNR.erase(it); 
+    }
+}
+
 // 将子句标记为不满足，并更新相关变量
 inline void unsat(int clause)								 // 这里clause应该表示子句在整个公式F中的下标（从0开始）
 {															 // unsat_stack_fill_pointer指当前新入stack的元素下标，也表示当前stack元素数量
@@ -235,7 +290,7 @@ void init()
 		}
 
 		score[v] = 0;
-		orig_score[v] = 0;
+		score[v] = 0;
 		// 获取变量所在的所有文字数量
 		lit_count = var_lit_count[v];
 		// 遍历变量的所有文字，计算得分
@@ -247,7 +302,7 @@ void init()
 				if (var_lit[v][i].sense == cur_soln[v])
 				{
 					score[v]--;		 // 子句仅由当前变量满足，则得分减1
-					orig_score[v]--; // 子句仅由当前变量满足，则得分减1
+					score[v]--; // 子句仅由当前变量满足，则得分减1
 				}
 				if (noncritical_clauses.find(c) != noncritical_clauses.end() && find(LN[v].begin(), LN[v].end(), c) == LN[v].end())
 					LN[v].insert(c);
@@ -255,7 +310,7 @@ void init()
 			else if (sat_count[c] == 0)
 			{
 				score[v]++;		 // 子句不满足，则翻转该变量后子句满足，得分+1
-				orig_score[v]++; // 子句不满足，则翻转该变量后子句满足，得分+1
+				score[v]++; // 子句不满足，则翻转该变量后子句满足，得分+1
 			}
 		}
 	}
@@ -319,9 +374,8 @@ void init()
 void flip(int flipvar)
 {
 	// if (key_flip == 1)
-	{
-		LU.insert(flipvar); // 记录翻转变量
-	}
+	LU.insert(flipvar); // 记录翻转变量
+
 	cur_soln[flipvar] = 1 - cur_soln[flipvar]; // 翻转 flipvar 的值
 	// 选择翻转变量后应该更新flipvar及其邻居的var_change
 	// var_change用于判断其和邻居是否为qualifie pair
@@ -348,14 +402,13 @@ void flip(int flipvar)
 	}
 	// above
 
-	cur_soln[flipvar] = 1 - cur_soln[flipvar]; // 翻转 flipvar 的值
 
 	int v, c;
 
 	lit *clause_c;
 	// 在分数没更新时，保存flipvar的原始得分
 	int org_flipvar_score = score[flipvar];
-	int orig_flipvar_score = orig_score[flipvar];
+	int orig_flipvar_score = score[flipvar];
 
 	// update related clauses and neighbor vars 遍历flipvar所在的子句，q是flipvar的所有文字，c是文字对应的子句编号
 	for (lit *q = var_lit[flipvar]; (c = q->clause_num) >= 0; q++)
@@ -372,13 +425,25 @@ void flip(int flipvar)
 				// 增加满足子句的另一个变量的得分
 				// ∵之前翻转另一变量,子句从满足变成不满足,因此子句对另一变量的分数贡献为-clause_weight[c]
 				// 这儿要修改成不加权和加权的两种
+				bool oldQ = (Q_C[c] == 1);
+                bool oldR = (R_C[c] == 1);
+                int oldScore = S_C[c];   
+				if (oldQ) {
+					// c 在 LNQ[oldScore]
+					removeClauseFromLNQ(c, oldScore);
+				}
+				if (oldR) {
+					// c 在 LNR[oldScore]
+					removeClauseFromLNR(c, oldScore);
+				}
 				score[sat_var[c]] += clause_weight[c];
-				orig_score[sat_var[c]] += 1; // 使用固定权重1
+				score[sat_var[c]] += 1; // 使用固定权重1
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					if (LN[v].find(c) != LN[v].end())
 					{
 						LN[v].erase(c);
+						// cout << "erase c because sat_cout=2, variable and clause :(" << v << ", " << c << "): " << endl;
 					}
 				}
 			}
@@ -391,7 +456,7 @@ void flip(int flipvar)
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					score[v] -= clause_weight[c];
-					orig_score[v] -= 1; // 固定权重1
+					score[v] -= 1; // 固定权重1
 					LN[v].insert(c);	// 将子句编号加入到变量的 LN 中
 				}
 				// 将子句标记为满足，并更新相关变量
@@ -413,7 +478,7 @@ void flip(int flipvar)
 					{
 
 						score[v] -= clause_weight[c];
-						orig_score[v] -= 1; // 固定权重1
+						score[v] -= 1; // 固定权重1
 						sat_var[c] = v;		// 目前唯一满足子句c的变量是v
 						break;
 					}
@@ -426,10 +491,22 @@ void flip(int flipvar)
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					score[v] += clause_weight[c];
-					orig_score[v] += 1; // 固定权重1
+					score[v] += 1; // 固定权重1
+					bool oldQ = (Q_C[c] == 1);
+					bool oldR = (R_C[c] == 1);
+					int oldScore = S_C[c];   
+					if (oldQ) {
+						// c 在 LNQ[oldScore]
+						removeClauseFromLNQ(c, oldScore);
+					}
+					if (oldR) {
+						// c 在 LNR[oldScore]
+						removeClauseFromLNR(c, oldScore);
+					}
 					if (LN[v].find(c) != LN[v].end())
 					{
 						LN[v].erase(c);
+						// cout << "erase c because satcout==0 variable and clause :(" << v << ", " << c << "): " << endl;
 					}
 				}
 				// 将子句标记为不满足，并更新相关变量
@@ -440,7 +517,7 @@ void flip(int flipvar)
 	}
 	// flipvar翻转后，分数为翻转前的相反数，邻居分数已经在上面更新过了
 	score[flipvar] = -org_flipvar_score;
-	orig_score[flipvar] = -orig_flipvar_score;
+	score[flipvar] = -orig_flipvar_score;
 	/*update CCD */
 	int index;
 	// 因为flipvar刚翻转过，conf_change设置为unflippable
@@ -524,14 +601,14 @@ struct Result
 Result is_valuable_for_critical(int xi, int xj)
 {
 	// 根据你的说明：
-	// score(F, X_j, s_i_t) = computePairScore(xi, xj) - orig_score[xi]
-	// score(F, X_i, s_i,j_t) = computePairScore(xi, xj) - orig_score[xj]
+	// score(F, X_j, s_i_t) = computePairScore(xi, xj) - score[xi]
+	// score(F, X_i, s_i,j_t) = computePairScore(xi, xj) - score[xj]
 	//
 	// 条件要求：
-	// 1. orig_score[xi] + (computePairScore(xi, xj) - orig_score[xi]) > 0   => computePairScore(xi, xj) > 0
-	// 2. (computePairScore(xi, xj) - orig_score[xi]) > 0
-	// 3. (computePairScore(xi, xj) - orig_score[xi]) > orig_score[xj]
-	// 4. (computePairScore(xi, xj) - orig_score[xj]) <= 0
+	// 1. score[xi] + (computePairScore(xi, xj) - score[xi]) > 0   => computePairScore(xi, xj) > 0
+	// 2. (computePairScore(xi, xj) - score[xi]) > 0
+	// 3. (computePairScore(xi, xj) - score[xi]) > score[xj]
+	// 4. (computePairScore(xi, xj) - score[xj]) <= 0
 	//
 	// 下面将 computePairScore(xi, xj) 用 n_i_j 表示：
 	int n_i_j = computePairScore(xi, xj);
@@ -539,7 +616,7 @@ Result is_valuable_for_critical(int xi, int xj)
 	bool cond2 = (n_i_j - score[xi] > 0);
 	// 条件1: 其实就是 n_i_j > 0
 	bool cond1 = (n_i_j > 0);
-	// 条件3: (n_i_j - orig_score[xi]) > orig_score[xj]
+	// 条件3: (n_i_j - score[xi]) > score[xj]
 	bool cond3 = ((n_i_j - score[xi]) > score[xj]);
 	// 条件4: (n_i_j - score[xj]) <= 0
 	bool cond4 = ((score[xj] - n_i_j) <= 0);
@@ -559,7 +636,7 @@ Result is_valuable_for_critical(int xi, int xj)
 Result is_valuable_for_noncritical(int xi, int xj)
 {
 	// 确保键是 canonical 格式
-	int n_i_j = computePairScore(xi, xj);
+	int n_i_j = score[xj] + score[xi];
 	// 条件3：得分条件，根据论文描述，可以判断 (score(xj) >= 0 && score(xi) >= 0) 或 (score(xj) >= 1 && score(xi) == -1)
 	if ((score[xj] >= 0 && score[xi] >= 0) || (score[xj] >= 1 && score[xi] == -1))
 		return {n_i_j, true};
@@ -783,55 +860,55 @@ void initializePairStructures(const std::set<std::pair<int, int>> &criticalPairs
 // - Q_C[c], R_C[c], S_C[c] 为全局数组，存储 Q(C), R(C), S(C)
 // - P_C[c] 建议使用全局 array / map 存储 pair<int,int>，也可以内置在 NonCriticalClause 中
 // - getSingleSatisfiedVar(c) / checkAndUpdateClause(c) 等函数需要你自行实现
-void removeOldRecordInLNQorLNR(int c, bool oldQ, bool oldR, int oldScore)
-{
-	// 若旧状态 Q=1 => c 在 LNQ[oldScore] 里
-	if (oldQ)
-	{
-		auto it = LNQ.find(oldScore);
-		if (it != LNQ.end())
-		{
-			auto &dq = it->second;
-			// O(n) 在 dq 中找 c 并删除
-			for (auto dit = dq.begin(); dit != dq.end(); ++dit)
-			{
-				if (*dit == c)
-				{
-					dq.erase(dit);
-					break;
-				}
-			}
-			if (dq.empty())
-			{
-				LNQ.erase(it);
-			}
-		}
-	}
-	// 若旧状态 R=1 => c 在 LNR[oldScore] 里
-	if (oldR)
-	{
-		auto it = LNR.find(oldScore);
-		if (it != LNR.end())
-		{
-			auto &dq = it->second;
-			// 同理在 dq 中找 c
-			for (auto dit = dq.begin(); dit != dq.end(); ++dit)
-			{
-				if (*dit == c)
-				{
-					dq.erase(dit);
-					break;
-				}
-			}
-			if (dq.empty())
-			{
-				LNR.erase(it);
-			}
-		}
-	}
-}
+// void removeOldRecordInLNQorLNR(int c, bool oldQ, bool oldR, int oldScore)
+// {
+// 	// 若旧状态 Q=1 => c 在 LNQ[oldScore] 里
+// 	if (oldQ)
+// 	{
+// 		auto it = LNQ.find(oldScore);
+// 		if (it != LNQ.end())
+// 		{
+// 			auto &dq = it->second;
+// 			// O(n) 在 dq 中找 c 并删除
+// 			for (auto dit = dq.begin(); dit != dq.end(); ++dit)
+// 			{
+// 				if (*dit == c)
+// 				{
+// 					dq.erase(dit);
+// 					break;
+// 				}
+// 			}
+// 			if (dq.empty())
+// 			{
+// 				LNQ.erase(it);
+// 			}
+// 		}
+// 	}
+// 	// 若旧状态 R=1 => c 在 LNR[oldScore] 里
+// 	if (oldR)
+// 	{
+// 		auto it = LNR.find(oldScore);
+// 		if (it != LNR.end())
+// 		{
+// 			auto &dq = it->second;
+// 			// 同理在 dq 中找 c
+// 			for (auto dit = dq.begin(); dit != dq.end(); ++dit)
+// 			{
+// 				if (*dit == c)
+// 				{
+// 					dq.erase(dit);
+// 					break;
+// 				}
+// 			}
+// 			if (dq.empty())
+// 			{
+// 				LNR.erase(it);
+// 			}
+// 		}
+// 	}
+// }
 void pickOthers(int c, int xj, int &xk, int &xl);
-void checkQFlipOrRev(int a, int b, bool &foundUQ, bool &foundR,
+void checkQFlipOrRev(int c, int a, int b, bool &foundUQ, bool &foundR,
 					 int &bestScore, std::pair<int, int> &bestPair);
 
 void updateNonCriticalClausesInLN(int currentStep)
@@ -842,16 +919,11 @@ void updateNonCriticalClausesInLN(int currentStep)
 		// 遍历 LN[x] 中所有子句 c
 		for (int c : LN[x])
 		{
-			// 若子句 c 在本 step 已更新过，跳过
+
+			// // 若子句 c 在本 step 已更新过，跳过
 			if (T_C[c] == currentStep)
 				continue;
-			// 记录旧状态
-			bool oldQ = (Q_C[c] == 1);
-			bool oldR = (R_C[c] == 1);
-			int oldScore = S_C[c];
-
-			// 先删除旧记录 (若有)
-			removeOldRecordInLNQorLNR(c, oldQ, oldR, oldScore);
+			
 			// 否则设置 T_C[c] = currentStep，表示本 step 已更新
 			T_C[c] = currentStep;
 
@@ -880,10 +952,10 @@ void updateNonCriticalClausesInLN(int currentStep)
 			int bestScore = 0;
 			pair<int, int> bestPair = {0, 0};
 
-			checkQFlipOrRev(xj, xk, foundUQ, foundR, bestScore, bestPair);
-			checkQFlipOrRev(xk, xl, foundUQ, foundR, bestScore, bestPair);
-			checkQFlipOrRev(xk, xj, foundUQ, foundR, bestScore, bestPair);
-			checkQFlipOrRev(xl, xj, foundUQ, foundR, bestScore, bestPair);
+			checkQFlipOrRev(c, xj, xk, foundUQ, foundR, bestScore, bestPair);
+			checkQFlipOrRev(c, xk, xj, foundUQ, foundR, bestScore, bestPair);
+			checkQFlipOrRev(c, xl, xj, foundUQ, foundR, bestScore, bestPair);
+			checkQFlipOrRev(c, xj, xl, foundUQ, foundR, bestScore, bestPair);
 
 			if (foundUQ)
 			{
@@ -911,10 +983,6 @@ void updateNonCriticalClausesInLN(int currentStep)
 			}
 		}
 	}
-
-	// 最后清空 LU, 并对 U_array 做必要处理
-	// 如果论文要求此处清空, 可以在这里或者其他地方
-	// 下面仅供参考:
 	LU.clear();
 }
 
@@ -954,7 +1022,7 @@ void pickOthers(int c, int xj, int &xk, int &xl)
  * 传入 (a,b)，先尝试u-q-flippable，如果找到则更新 foundUQ，
  * 否则再看是否reversible。如果 foundUQ=true，不再看 foundR
  *******************************************************/
-void checkQFlipOrRev(int a, int b,
+void checkQFlipOrRev(int c, int a, int b,
 					 bool &foundUQ, bool &foundR,
 					 int &bestScore, pair<int, int> &bestPair)
 {
@@ -968,7 +1036,7 @@ void checkQFlipOrRev(int a, int b,
 		if (is_qualified_pairs({a, b}))
 		{
 			// 计算分数
-			int sc = computePairScore(a, b);
+			int sc = score[a] + score[b]+clause_weight[c];
 			// 比较 sc 与 bestScore
 			if (!foundUQ)
 			{
@@ -988,7 +1056,7 @@ void checkQFlipOrRev(int a, int b,
 		}
 		else
 		{
-			int sc = computePairScore(a, b);
+			int sc = score[a] + score[b]+clause_weight[c];
 			if (!foundR)
 			{
 				foundR = true;
@@ -1017,6 +1085,7 @@ std::pair<int, int> getBestUQFirstVarAndScore()
 	// 如果 LNQ 为空，则没有任何 Q(C)=1 的子句
 	if (LNQ.empty())
 	{
+		// std::cerr << "[DEBUG UQ] LNQ is empty\n";
 		return {0, 0};
 	}
 	// LNQ.rbegin() => map里分数最大的那一组
@@ -1024,22 +1093,52 @@ std::pair<int, int> getBestUQFirstVarAndScore()
 	int maxScore = it->first; // 最大分数
 	auto &cids = it->second;  // 所有分数 == maxScore 的子句队列
 
-	// 如果子句队列为空，返回 (0,0)
-	if (cids.empty())
-	{
-		return {0, 0};
-	}
+    // 如果子句队列为空，返回 (0,0)
+    if (cids.empty())
+    {
+        return {0, 0};
+    }
 
-	// 随便取一个子句（这里取队列 front）
-	int bestClause = cids.front();
 
-	// P_C[bestClause] 是 (x_i, x_j)
-	// 只要 x_i 作为“第一个变量”
-	int firstVar = P_C[bestClause].first;
+    int bestClause = cids.front();
+    // 取该子句对应的变量 pair: (x_i, x_j)
+    auto pair0 = P_C[bestClause];
+    int bestVar = pair0.first; // 这里只看 first
+    int bestTime = time_stamp[bestVar];
+
+    // 遍历 cids
+    int idx = 0;
+    for (auto c : cids) 
+    {
+        if (idx == 0) {
+            // 第一个已经处理过, 只需要略过
+            idx++;
+            continue;
+        }
+
+        auto pr = P_C[c]; // (x_i, x_j)
+        int varCandidate = pr.first;   // 这里你只对 first 感兴趣
+        int timeCandidate = time_stamp[varCandidate];
+        // 比较 time_stamp
+        if (timeCandidate < bestTime) {
+            bestTime   = timeCandidate;
+            bestVar    = varCandidate;
+            bestClause = c;
+        }
+        idx++;
+    }
+
+    // 如果你想打印一下调试:
+    // std::cerr << "[DEBUG UQ] choose clause=" << bestClause 
+    //           << ", bestVar=" << bestVar
+    //           << ", bestTime=" << bestTime
+    //           << ", LNQ maxScore=" << maxScore << "\n";
 
 	// 返回 (firstVar, maxScore)
-	return {firstVar, maxScore};
+	return {bestVar, maxScore};
 }
+
+
 std::pair<int, int> getBestRevFirstVarAndScore()
 {
 	// 如果 LNR 为空，表示没有任何 R(C)=1 的子句
