@@ -136,7 +136,8 @@ int pick_var_1()
 		if (entry.second > maxscore)
 		{
 			maxscore = entry.second;
-			best_var = entry.first.first;
+			int xi = int(entry.first >> 32); // 高 32 位
+			best_var = xi;
 		}
 	}
 
@@ -196,7 +197,8 @@ int pick_var_1()
 		if (entry.second > maxscore)
 		{
 			maxscore = entry.second;
-			best_var = entry.first.first;
+			int xi = int(entry.first >> 32); // 高 32 位
+			best_var = xi;
 		}
 	}
 	// cout << "[DEBUG] from LCR manual iteration => best_var=" << best_var 

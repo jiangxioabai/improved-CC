@@ -33,6 +33,7 @@
 
 // -----------------------------------------------------------------------new
 #include <iostream>
+#include <cstdint>
 #include <unordered_map>
 #include <map>
 #include <deque>
@@ -40,6 +41,7 @@
 #include <utility>
 #include <unordered_set>
 #include <set>
+using PairKey = uint64_t;
 
 // 用vector来管理，代码更简洁易懂
 #define pop(stack) stack[--stack##_fill_pointer]			   // pop则_fill_pointer--
@@ -75,11 +77,22 @@ struct pair_hash
 // 全局数据结构：
 // LCQ 存储 valuable 且 qualified 的 pair，LCR 存储 valuable 但 unqualified 的 pair
 // 其中键是 canonical pair，即 (min(xi,xj), max(xi,xj))
-unordered_map<pair<int, int>, int, pair_hash> LCQ;
-unordered_map<pair<int, int>, int, pair_hash> LCR;
+// unordered_map<pair<int, int>, int, pair_hash> LCQ;
+// unordered_map<pair<int, int>, int, pair_hash> LCR;                      // 64‑bit 压缩键
+static inline PairKey pair_key_directed(int a, int b)
+{
+	// 强制转成无符号 32‑bit 后拼接，高 32 位 = a，低 32 位 = b
+	return (PairKey(uint32_t(a)) << 32) | uint32_t(b);
+}
 
-map<int, std::deque<int>> LNQ; // 记录 Q(C)=1 的子句，按score分组
-map<int, std::deque<int>> LNR;
+/* ------------------------------------------------------------------ */
+/* 替换原来的 std::map<pair<int,int>,int> 容器                       */
+/* ------------------------------------------------------------------ */
+std::unordered_map<PairKey, int> LCQ; // qualified‑pair  → score
+std::unordered_map<PairKey, int> LCR; // reversible‑pair → score
+
+unordered_map<int, std::deque<int>> LNQ; // 记录 Q(C)=1 的子句，按score分组
+unordered_map<int, std::deque<int>> LNR;
 
 // criticalVars 为全局变量，存储所有 critical 变量的编号
 extern std::vector<int> criticalVars;
@@ -107,59 +120,66 @@ set<pair<int, int>> unqualified_pairs;
 #define pop(stack) stack[--stack##_fill_pointer]			   // pop则_fill_pointer--
 #define push(item, stack) stack[stack##_fill_pointer++] = item // push则_fill_pointer++
 
-
 void removeClauseFromLNQ(int c, int oldScore)
 {
-    // 在 LNQ 中查找 oldScore
-    auto it = LNQ.find(oldScore);
-    if (it == LNQ.end()) {
-        // 说明 LNQ 中没有分数=oldScore 的条目，无需删除
-        return;
-    }
+	// 在 LNQ 中查找 oldScore
+	auto it = LNQ.find(oldScore);
+	if (it == LNQ.end())
+	{
+		// 说明 LNQ 中没有分数=oldScore 的条目，无需删除
+		return;
+	}
 
-    // 取到存放旧分数=oldScore 的子句队列
-    std::deque<int> & dq = it->second;
+	// 取到存放旧分数=oldScore 的子句队列
+	std::deque<int> &dq = it->second;
 
-    // 在 dq 里找到子句 c 并删除
-    // 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
-    for (auto dit = dq.begin(); dit != dq.end(); ++dit) {
-        if (*dit == c) {
-            dq.erase(dit);
-            break; 
-        }
-    }
+	// 在 dq 里找到子句 c 并删除
+	// 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
+	for (auto dit = dq.begin(); dit != dq.end(); ++dit)
+	{
+		if (*dit == c)
+		{
+			dq.erase(dit);
+			break;
+		}
+	}
 
-    // 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
-    if (dq.empty()) {
-        LNQ.erase(it); 
-    }
+	// 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
+	if (dq.empty())
+	{
+		LNQ.erase(it);
+	}
 }
 
 void removeClauseFromLNR(int c, int oldScore)
 {
-    // 在 LNQ 中查找 oldScore
-    auto it = LNR.find(oldScore);
-    if (it == LNR.end()) {
-        // 说明 LNQ 中没有分数=oldScore 的条目，无需删除
-        return;
-    }
+	// 在 LNQ 中查找 oldScore
+	auto it = LNR.find(oldScore);
+	if (it == LNR.end())
+	{
+		// 说明 LNQ 中没有分数=oldScore 的条目，无需删除
+		return;
+	}
 
-    // 取到存放旧分数=oldScore 的子句队列
-    std::deque<int> & dq = it->second;
+	// 取到存放旧分数=oldScore 的子句队列
+	std::deque<int> &dq = it->second;
 
-    // 在 dq 里找到子句 c 并删除
-    // 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
-    for (auto dit = dq.begin(); dit != dq.end(); ++dit) {
-        if (*dit == c) {
-            dq.erase(dit);
-            break; 
-        }
-    }
+	// 在 dq 里找到子句 c 并删除
+	// 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
+	for (auto dit = dq.begin(); dit != dq.end(); ++dit)
+	{
+		if (*dit == c)
+		{
+			dq.erase(dit);
+			break;
+		}
+	}
 
-    // 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
-    if (dq.empty()) {
-        LNR.erase(it); 
-    }
+	// 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
+	if (dq.empty())
+	{
+		LNR.erase(it);
+	}
 }
 
 // 将子句标记为不满足，并更新相关变量
@@ -301,7 +321,7 @@ void init()
 			{
 				if (var_lit[v][i].sense == cur_soln[v])
 				{
-					score[v]--;		 // 子句仅由当前变量满足，则得分减1
+					score[v]--; // 子句仅由当前变量满足，则得分减1
 					score[v]--; // 子句仅由当前变量满足，则得分减1
 				}
 				if (noncritical_clauses.find(c) != noncritical_clauses.end() && find(LN[v].begin(), LN[v].end(), c) == LN[v].end())
@@ -309,7 +329,7 @@ void init()
 			}
 			else if (sat_count[c] == 0)
 			{
-				score[v]++;		 // 子句不满足，则翻转该变量后子句满足，得分+1
+				score[v]++; // 子句不满足，则翻转该变量后子句满足，得分+1
 				score[v]++; // 子句不满足，则翻转该变量后子句满足，得分+1
 			}
 		}
@@ -402,7 +422,6 @@ void flip(int flipvar)
 	}
 	// above
 
-
 	int v, c;
 
 	lit *clause_c;
@@ -426,13 +445,15 @@ void flip(int flipvar)
 				// ∵之前翻转另一变量,子句从满足变成不满足,因此子句对另一变量的分数贡献为-clause_weight[c]
 				// 这儿要修改成不加权和加权的两种
 				bool oldQ = (Q_C[c] == 1);
-                bool oldR = (R_C[c] == 1);
-                int oldScore = S_C[c];   
-				if (oldQ) {
+				bool oldR = (R_C[c] == 1);
+				int oldScore = S_C[c];
+				if (oldQ)
+				{
 					// c 在 LNQ[oldScore]
 					removeClauseFromLNQ(c, oldScore);
 				}
-				if (oldR) {
+				if (oldR)
+				{
 					// c 在 LNR[oldScore]
 					removeClauseFromLNR(c, oldScore);
 				}
@@ -456,8 +477,8 @@ void flip(int flipvar)
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					score[v] -= clause_weight[c];
-					score[v] -= 1; // 固定权重1
-					LN[v].insert(c);	// 将子句编号加入到变量的 LN 中
+					score[v] -= 1;	 // 固定权重1
+					LN[v].insert(c); // 将子句编号加入到变量的 LN 中
 				}
 				// 将子句标记为满足，并更新相关变量
 				sat(c);
@@ -478,8 +499,8 @@ void flip(int flipvar)
 					{
 
 						score[v] -= clause_weight[c];
-						score[v] -= 1; // 固定权重1
-						sat_var[c] = v;		// 目前唯一满足子句c的变量是v
+						score[v] -= 1;	// 固定权重1
+						sat_var[c] = v; // 目前唯一满足子句c的变量是v
 						break;
 					}
 					LN[v].insert(c); // 将子句编号加入到变量的 LN 中
@@ -494,12 +515,14 @@ void flip(int flipvar)
 					score[v] += 1; // 固定权重1
 					bool oldQ = (Q_C[c] == 1);
 					bool oldR = (R_C[c] == 1);
-					int oldScore = S_C[c];   
-					if (oldQ) {
+					int oldScore = S_C[c];
+					if (oldQ)
+					{
 						// c 在 LNQ[oldScore]
 						removeClauseFromLNQ(c, oldScore);
 					}
-					if (oldR) {
+					if (oldR)
+					{
 						// c 在 LNR[oldScore]
 						removeClauseFromLNR(c, oldScore);
 					}
@@ -722,128 +745,84 @@ int computePairScore(int xi, int xj)
 // 更新函数：直接使用传入的对 (xi,xj) 的顺序，不转换
 void updatePairStructures(int xi, int xj)
 {
-	// 直接使用传入的顺序构造 pair
-	pair<int, int> key = {xi, xj};
-	int scoreVal = computePairScore(xi, xj);
+	PairKey key = pair_key_directed(xi, xj);
 
-	// 获取 valuable 和 qualified 的判定
-	Result valResult = is_valuable_for_critical(xi, xj);
-	bool valuable = valResult.re;
+	bool valuable = is_valuable_for_critical(xi, xj).re;
 	bool qualified = is_qualified_pairs({xi, xj});
 
-	// 输出调试信息
-	// cout << "Updating pair (" << xi << ", " << xj << "): score = " << scoreVal
-	// 	 << ", valuable = " << (valuable ? "true" : "false")
-	// 	 << ", qualified = " << (qualified ? "true" : "false") << endl;
+	bool inLCQ = LCQ.find(key) != LCQ.end();
+	bool inLCR = LCR.find(key) != LCR.end();
 
-	// 检查该 pair 是否已经存在于 LCQ 或 LCR 中
-	bool inLCQ = (LCQ.find(key) != LCQ.end());
-	bool inLCR = (LCR.find(key) != LCR.end());
-
-	if (inLCQ || inLCR)
+	/* ---------- ❶  如果不再 valuable : 直接删除 ---------- */
+	if (!valuable)
 	{
-		// cout << "Pair already exists: inLCQ = " << inLCQ << ", inLCR = " << inLCR << endl;
-		if (valuable)
-		{
-			if (qualified)
-			{
-				// 该 pair 应该存入 LCQ
-				LCQ[key] = scoreVal; // 更新分数
-				LCR.erase(key);
-				// cout << "Pair (" << xi << ", " << xj << ") updated in LCQ." << endl;
-			}
-			else
-			{
-				// valuable 但不 qualified，则放到 LCR（即 unqualified 方向）
-				LCR[key] = scoreVal;
-				LCQ.erase(key);
-				// cout << "Pair (" << xi << ", " << xj << ") updated in LCR." << endl;
-			}
-		}
-		else
-		{
-			// 不满足 valuable，则删除该 pair
+		if (inLCQ)
 			LCQ.erase(key);
+		if (inLCR)
 			LCR.erase(key);
-			// cout << "Pair (" << xi << ", " << xj << ") removed since not valuable." << endl;
-		}
-	}
-	else // pair 不存在于 LCQ/LCR 中
-	{
-		if (valuable)
-		{
-			if (qualified)
-			{
-				LCQ[key] = scoreVal;
-				// cout << "Pair (" << xi << ", " << xj << ") added to LCQ." << endl;
-			}
-			else
-			{
-				LCR[key] = scoreVal;
-				// cout << "Pair (" << xi << ", " << xj << ") added to LCR." << endl;
-			}
-		}
-		else
-		{
-			// cout << "Pair (" << xi << ", " << xj << ") not added, not valuable." << endl;
-		}
+		return; // 结束，没算 score
 	}
 
-	// cout << "After update, LCQ size = " << LCQ.size() << ", LCR size = " << LCR.size() << endl;
+	/* ---------- ❷  already in right bucket? ---------- */
+	if (qualified && inLCQ)
+		return; // 好的 pair 已在 LCQ ✔
+	if (!qualified && inLCR)
+		return; // 不 qualified 已在 LCR ✔
+
+	/* ---------- ❸  其余情况才需要计算分数 ---------- */
+	int scoreVal = computePairScore(xi, xj);
+
+	if (qualified)
+	{
+		LCQ[key] = scoreVal; // 插或覆盖
+		if (inLCR)
+			LCR.erase(key); // 从另一桶移除
+	}
+	else
+	{
+		LCR[key] = scoreVal;
+		if (inLCQ)
+			LCQ.erase(key);
+	}
 }
 
 void initializePairStructures(const std::set<std::pair<int, int>> &criticalPairs)
 {
 	LCQ.clear();
 	LCR.clear();
-	std::cout << "Initializing Pair Structures" << std::endl;
+	LCQ.reserve(criticalPairs.size() * 2); // 预留哈希桶
+	LCR.reserve(criticalPairs.size() * 2);
+
+	std::cout << "Initializing Pair Structures\n";
+
 	for (const auto &p : criticalPairs)
 	{
 		int xi = p.first, xj = p.second;
-		// 分别判断两个方向的 valuable
+
 		Result res_xy = is_valuable_for_critical(xi, xj);
 		Result res_yx = is_valuable_for_critical(xj, xi);
+		if (!res_xy.re && !res_yx.re)
+			continue; // 两向都不 valuable
 
-		// 只有至少有一个方向 valuable 才考虑该对
-		if (res_xy.re || res_yx.re)
-		{
-			// 计算该对的综合分数（无论顺序如何，computePairScore 本身使用两个变量的值）
-			int s = computePairScore(xi, xj);
-			std::pair<int, int> key;
-			if (res_xy.re && res_yx.re)
-			{
-				// 两个方向都满足 valuable，则按时间戳比较，将时间戳较小的放在前面
-				if (time_stamp[xi] <= time_stamp[xj])
-					key = {xi, xj};
-				else
-					key = {xj, xi};
-			}
-			else if (res_xy.re)
-			{
-				key = {xi, xj};
-			}
-			else
-			{
-				key = {xj, xi};
-			}
+		/* 选方向：若两向都可，则把 time_stamp 小的做第一 */
+		int a = xi, b = xj;
+		if (res_xy.re && res_yx.re && time_stamp[xi] > time_stamp[xj])
+			std::swap(a, b);
+		else if (!res_xy.re) // 只有 y→x valuable
+			std::swap(a, b); // 方向取 (xj,xi)
 
-			// 判断 qualified 条件，根据调整后的 key（顺序可能已改变）
-			if (is_qualified_pairs(key))
-			{
-				LCQ[key] = s;
-			}
-			else
-			{
-				LCR[key] = s;
-				// std::cout << "Pair (" << key.first << ", " << key.second << ") inserted into LCR with score " << s << std::endl;
-			}
-		}
+		PairKey key = pair_key_directed(a, b);
+		int s = computePairScore(a, b);
+
+		if (is_qualified_pairs({a, b}))
+			LCQ[key] = s;
 		else
-		{
-			// std::cout << "Pair (" << xi << ", " << xj << ") is not valuable in any direction, skipping." << std::endl;
-		}
+			LCR[key] = s;
 	}
-	std::cout << "Initialization complete. LCQ size = " << LCQ.size() << ", LCR size = " << LCR.size() << std::endl;
+
+	std::cout << "Initialization complete. LCQ size = "
+			  << LCQ.size() << ", LCR size = "
+			  << LCR.size() << "\n";
 }
 
 /*******************************************************
@@ -923,7 +902,7 @@ void updateNonCriticalClausesInLN(int currentStep)
 			// // 若子句 c 在本 step 已更新过，跳过
 			if (T_C[c] == currentStep)
 				continue;
-			
+
 			// 否则设置 T_C[c] = currentStep，表示本 step 已更新
 			T_C[c] = currentStep;
 
@@ -1036,7 +1015,7 @@ void checkQFlipOrRev(int c, int a, int b,
 		if (is_qualified_pairs({a, b}))
 		{
 			// 计算分数
-			int sc = score[a] + score[b]+clause_weight[c];
+			int sc = score[a] + score[b] + clause_weight[c];
 			// 比较 sc 与 bestScore
 			if (!foundUQ)
 			{
@@ -1056,7 +1035,7 @@ void checkQFlipOrRev(int c, int a, int b,
 		}
 		else
 		{
-			int sc = score[a] + score[b]+clause_weight[c];
+			int sc = score[a] + score[b] + clause_weight[c];
 			if (!foundR)
 			{
 				foundR = true;
@@ -1080,93 +1059,65 @@ void checkQFlipOrRev(int c, int a, int b,
  * 返回分数最高的 u-q 子句编号
  * 如果 LNQ 为空则返回 -1
  */
-std::pair<int, int> getBestUQFirstVarAndScore()
+/* ------------------------------------------------------------------
+ * 取 LNQ 中分数最大的子句，返回 (pair.first, score)
+ * 若 LNQ 为空或所有桶都空，则返回 (0,0)
+ * ------------------------------------------------------------------ */
+std::pair<int,int> getBestUQFirstVarAndScore()
 {
-	// 如果 LNQ 为空，则没有任何 Q(C)=1 的子句
-	if (LNQ.empty())
-	{
-		// std::cerr << "[DEBUG UQ] LNQ is empty\n";
-		return {0, 0};
-	}
-	// LNQ.rbegin() => map里分数最大的那一组
-	auto it = LNQ.rbegin();
-	int maxScore = it->first; // 最大分数
-	auto &cids = it->second;  // 所有分数 == maxScore 的子句队列
+    if (LNQ.empty())             // 没有任何 Q(C)=1
+        return {0,0};
 
-    // 如果子句队列为空，返回 (0,0)
-    if (cids.empty())
-    {
-        return {0, 0};
+    /* step‑1: 找最大的 score（键值） */
+    int maxScore = std::numeric_limits<int>::min();
+    for (const auto &kv : LNQ)          // kv.first = score
+        if (!kv.second.empty() && kv.first > maxScore)
+            maxScore = kv.first;
+
+    if (maxScore == std::numeric_limits<int>::min())
+        return {0,0};                   // 所有桶都空
+
+    /* step‑2: 在该桶内找 time_stamp 最早的变量 */
+    const std::deque<int> &dq = LNQ[maxScore];
+
+    int bestVar  = 0;
+    int bestTime = std::numeric_limits<int>::max();
+    for (int cid : dq) {
+        int v = P_C[cid].first;             // 只取 pair.first
+        int t = time_stamp[v];
+        if (t < bestTime) { bestTime = t; bestVar = v; }
     }
-
-
-    int bestClause = cids.front();
-    // 取该子句对应的变量 pair: (x_i, x_j)
-    auto pair0 = P_C[bestClause];
-    int bestVar = pair0.first; // 这里只看 first
-    int bestTime = time_stamp[bestVar];
-
-    // 遍历 cids
-    int idx = 0;
-    for (auto c : cids) 
-    {
-        if (idx == 0) {
-            // 第一个已经处理过, 只需要略过
-            idx++;
-            continue;
-        }
-
-        auto pr = P_C[c]; // (x_i, x_j)
-        int varCandidate = pr.first;   // 这里你只对 first 感兴趣
-        int timeCandidate = time_stamp[varCandidate];
-        // 比较 time_stamp
-        if (timeCandidate < bestTime) {
-            bestTime   = timeCandidate;
-            bestVar    = varCandidate;
-            bestClause = c;
-        }
-        idx++;
-    }
-
-    // 如果你想打印一下调试:
-    // std::cerr << "[DEBUG UQ] choose clause=" << bestClause 
-    //           << ", bestVar=" << bestVar
-    //           << ", bestTime=" << bestTime
-    //           << ", LNQ maxScore=" << maxScore << "\n";
-
-	// 返回 (firstVar, maxScore)
-	return {bestVar, maxScore};
+    return {bestVar, maxScore};
 }
 
 
-std::pair<int, int> getBestRevFirstVarAndScore()
+/* ------------------------------------------------------------------
+ * 取 LNR 中分数最大的子句，返回 (pair.first, score)
+ * ------------------------------------------------------------------ */
+std::pair<int,int> getBestRevFirstVarAndScore()
 {
-	// 如果 LNR 为空，表示没有任何 R(C)=1 的子句
-	if (LNR.empty())
-	{
-		return {0, 0};
-	}
+    if (LNR.empty())
+        return {0,0};
 
-	// 取 LNR.rbegin() => map里分数最大的那一项
-	auto it = LNR.rbegin();
-	int maxScore = it->first; // 最大分数
-	auto &cids = it->second;  // 这一堆子句都分数 = maxScore
+    int maxScore = std::numeric_limits<int>::min();
+    for (const auto &kv : LNR)
+        if (!kv.second.empty() && kv.first > maxScore)
+            maxScore = kv.first;
 
-	// 若队列为空，返回 (0,0)
-	if (cids.empty())
-	{
-		return {0, 0};
-	}
+    if (maxScore == std::numeric_limits<int>::min())
+        return {0,0};
 
-	// 取队列第一个子句
-	int bestClause = cids.front();
+    const std::deque<int> &dq = LNR[maxScore];
 
-	// 在 P_C[bestClause] 中存储了该子句的“最佳变量对”
-	// 我们只要对中的第一个变量
-	int firstVar = P_C[bestClause].first;
-
-	// 返回 (firstVar, maxScore)
-	return {firstVar, maxScore};
+    int bestVar  = 0;
+    int bestTime = std::numeric_limits<int>::max();
+    for (int cid : dq) {
+        int v = P_C[cid].first;
+        int t = time_stamp[v];
+        if (t < bestTime) { bestTime = t; bestVar = v; }
+    }
+    return {bestVar, maxScore};
 }
+
 
 #endif
