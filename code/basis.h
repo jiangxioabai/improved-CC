@@ -1,6 +1,6 @@
 #ifndef _BASIS_H_
 #define _BASIS_H_
-
+#include "pair_key.h"
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -56,8 +56,8 @@ unordered_map<int, vector<pair<int, int>>> LCP;
 
 // 对于每个 critical pair (X_i, X_j)，使用 LCC 来记录所有出现该对的 critical 子句
 // 这里使用 unordered_map，键构造方式与之前一致：key = (long long) i * MAX_VARS + j（保证 i < j）
-#include <unordered_map>
-unordered_map<long long, vector<int>> LCC;
+
+unordered_map<PairKey, vector<int>> LCC;
 
 // Define a data structure for a literal in the SAT problem.
 // 有子句数量 变量数量 真值
@@ -76,7 +76,6 @@ int min_clause_len;
 int formula_len = 0;
 double avg_clause_len;
 double instance_ratio;
-
 /* literal arrays */
 lit *var_lit[MAX_VARS];			   // var_lit[i][j] means the j'th literal of var i.
 int var_lit_count[MAX_VARS];	   // amount of literals of each var
@@ -495,7 +494,7 @@ void build_LCC_from_criticalPairs()
 						 back_inserter(common_clauses));
 
 		// 构造键，保证 xi < xj
-		long long key = ((long long)xi) * MAX_VARS + xj;
+		PairKey key   = pair_key_directed(xi, xj);
 		LCC[key] = common_clauses;
 		// std::cout << "Critical pair (" << xi << ", " << xj << ") common clause count = " << common_clauses.size() << std::endl;
 		// cout << LCC.size() << endl;

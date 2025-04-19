@@ -30,6 +30,7 @@
 #define _CCA_H_
 
 #include "basis.h"
+#include "pair_key.h"
 
 // -----------------------------------------------------------------------new
 #include <iostream>
@@ -44,8 +45,8 @@
 using PairKey = uint64_t;
 
 // 用vector来管理，代码更简洁易懂
-#define pop(stack) stack[--stack##_fill_pointer]			   // pop则_fill_pointer--
-#define push(item, stack) stack[stack##_fill_pointer++] = item // push则_fill_pointer++
+#define stack_push(item, stack) stack[stack##_fill_pointer++] = item
+#define stack_pop(stack) stack[--stack##_fill_pointer]
 
 using namespace std;
 // 全局数组，用于存储非关键子句的属性
@@ -74,17 +75,6 @@ struct pair_hash
 	}
 };
 
-// 全局数据结构：
-// LCQ 存储 valuable 且 qualified 的 pair，LCR 存储 valuable 但 unqualified 的 pair
-// 其中键是 canonical pair，即 (min(xi,xj), max(xi,xj))
-// unordered_map<pair<int, int>, int, pair_hash> LCQ;
-// unordered_map<pair<int, int>, int, pair_hash> LCR;                      // 64‑bit 压缩键
-static inline PairKey pair_key_directed(int a, int b)
-{
-	// 强制转成无符号 32‑bit 后拼接，高 32 位 = a，低 32 位 = b
-	return (PairKey(uint32_t(a)) << 32) | uint32_t(b);
-}
-
 /* ------------------------------------------------------------------ */
 /* 替换原来的 std::map<pair<int,int>,int> 容器                       */
 /* ------------------------------------------------------------------ */
@@ -104,8 +94,23 @@ std::unordered_set<int> LU;
 extern std::set<std::pair<int, int>> qualified_pairs_in_critical;
 std::set<std::pair<int, int>> valuable_pairs_for_critical;
 
-// 全局变量var_change[i]表示变量 i 的邻域内最近两次改变的变量队列，长度为2（只记录近两次的）
-std::vector<std::deque<int>> var_change;
+struct Last2Flip
+{
+	int a = -1, b = -2;
+
+	inline void push(int x)
+	{
+		b = a;
+		a = x;
+	}
+
+	inline bool same() const
+	{
+		return a == b;
+	}
+};
+std::vector<Last2Flip> var_change;
+
 // 需要每次遍历flipvar及其邻居和二次邻居的var_change，用于判断受到影响的是否为unqualified_pairs
 // 定义全局变量 neighbor_pairs 和 unqualified_pairs
 // 定义存储所有相邻变量对的集合（每个对保证 (v, u) 中 v < u）
@@ -115,10 +120,6 @@ set<pair<int, int>> unqualified_pairs;
 // set<pair <int, int>> critical_pairs;
 // // 定义存储 noncritical pairs 的集合（即重复出现的对）
 // map<pair <int, int>, int> noncritical_pairs;
-
-// 用vector来管理，代码更简洁易懂
-#define pop(stack) stack[--stack##_fill_pointer]			   // pop则_fill_pointer--
-#define push(item, stack) stack[stack##_fill_pointer++] = item // push则_fill_pointer++
 
 void removeClauseFromLNQ(int c, int oldScore)
 {
@@ -186,7 +187,7 @@ void removeClauseFromLNR(int c, int oldScore)
 inline void unsat(int clause)								 // 这里clause应该表示子句在整个公式F中的下标（从0开始）
 {															 // unsat_stack_fill_pointer指当前新入stack的元素下标，也表示当前stack元素数量
 	index_in_unsat_stack[clause] = unsat_stack_fill_pointer; // 记录子句在不满足栈中的位置
-	push(clause, unsat_stack);								 // 入栈
+	stack_push(clause, unsat_stack);						 // 入栈
 
 	// update appreance count of each var in unsat clause and update stack of vars in unsat clauses
 	int v;
@@ -200,7 +201,7 @@ inline void unsat(int clause)								 // 这里clause应该表示子句在整个
 		if (unsat_app_count[v] == 1) // 首次出现，则压入不满足变量栈，并记录位置
 		{
 			index_in_unsatvar_stack[v] = unsatvar_stack_fill_pointer;
-			push(v, unsatvar_stack); // 将变量压入不满足变量栈
+			stack_push(v, unsatvar_stack); // 将变量压入不满足变量栈
 		}
 	}
 }
@@ -212,7 +213,7 @@ inline void sat(int clause)
 
 	// since the clause is satisfied, its position can be reused to store the last_unsat_clause
 	// 交换函数输入clause和unsat_stack最后一个子句位置，并将clause出栈
-	last_unsat_clause = pop(unsat_stack);			 // 从不满足栈中移除最新一条不满足的子句
+	last_unsat_clause = stack_pop(unsat_stack);		 // 从不满足栈中移除最新一条不满足的子句
 	index = index_in_unsat_stack[clause];			 // 获得clause在不满足栈中的index
 	unsat_stack[index] = last_unsat_clause;			 // 将last_unsat_clause插入到该index中
 	index_in_unsat_stack[last_unsat_clause] = index; // 更新last_unsat_clause的index
@@ -224,7 +225,7 @@ inline void sat(int clause)
 		unsat_app_count[v]--;		 // 减少变量（下标为v）在不满足子句中的出现次数
 		if (unsat_app_count[v] == 0) // 如果次数减少为0，则将其出栈，同样是交换v和unsat_stack最后一个变量位置，并将v出栈
 		{
-			last_unsat_var = pop(unsatvar_stack);
+			last_unsat_var = stack_pop(unsatvar_stack);
 			index = index_in_unsatvar_stack[v];
 			unsatvar_stack[index] = last_unsat_var;
 			index_in_unsatvar_stack[last_unsat_var] = index;
@@ -243,7 +244,8 @@ void init()
 	LN.resize(num_vars + 1); // 给 LN 分配 num_vars+1 个 unordered_set
 
 	// 初始化var_change，长度为 count，每个队列为空
-	var_change = std::vector<std::deque<int>>(num_vars + 1);
+	var_change = std::vector<Last2Flip>(num_vars + 1);
+
 	// 初始化qualified_pair
 
 	// Initialize edge weights 初始化子句权重为1
@@ -377,7 +379,7 @@ void init()
 		if (score[v] > 0) // && conf_change[v]==1)
 		{
 			already_in_goodvar_stack[v] = 1;
-			push(v, goodvar_stack);
+			stack_push(v, goodvar_stack);
 
 		} // 否则标记为未在 goodvar_stack 中
 		else
@@ -403,24 +405,13 @@ void flip(int flipvar)
 	// 更新flipvar自己的var_change
 	int i, j;
 	// 如果历史记录已经有两事件，则移除最早的一个
-	if (var_change[flipvar].size() == 2)
-	{
-		var_change[flipvar].pop_front();
-	}
-	var_change[flipvar].push_back(flipvar);
-	// 更新flipvar邻居的var_change
+	var_change[flipvar].push(flipvar);
+
 	for (i = 0; var_neighbor[flipvar][i] != 0; i++)
 	{
-		// 获取邻居编号
 		j = var_neighbor[flipvar][i];
-		// 如果历史记录已经有两事件，则移除最早的一个
-		if (var_change[j].size() == 2)
-		{
-			var_change[j].pop_front();
-		}
-		var_change[j].push_back(flipvar);
+		var_change[j].push(flipvar);
 	}
-	// above
 
 	int v, c;
 
@@ -554,7 +545,7 @@ void flip(int flipvar)
 		// 分数不满足移除，这里会把 flipvar 移除，因为其分数已被更新为负
 		if (score[v] <= 0)
 		{
-			goodvar_stack[index] = pop(goodvar_stack);
+			goodvar_stack[index] = stack_pop(goodvar_stack);
 			already_in_goodvar_stack[v] = 0;
 		}
 	}
@@ -568,7 +559,7 @@ void flip(int flipvar)
 		// 分数大于0，且还未在goodvar_stack，则入栈
 		if (score[v] > 0 && already_in_goodvar_stack[v] == 0)
 		{
-			push(v, goodvar_stack);
+			stack_push(v, goodvar_stack);
 			already_in_goodvar_stack[v] = 1;
 		}
 	}
@@ -597,25 +588,16 @@ void flip(int flipvar)
 }
 
 // ------------------------------------------------------------------------new
-
 bool is_qualified_pairs(const std::pair<int, int> &pairs)
 {
-	// 取出两个变量对应的变化队列
-	std::deque<int> &dq_xi = var_change[pairs.first];
-	std::deque<int> &dq_xj = var_change[pairs.second];
+	const auto &xi = var_change[pairs.first];
+	const auto &xj = var_change[pairs.second];
+	if (xi.a < 0 || xi.b < 0 || xj.a < 0 || xj.b < 0)
+		return true;
 
-	// 仅当两个队列都恰好包含两个事件时才判断；否则直接返回 true
-	if (dq_xi.size() == 2 && dq_xj.size() == 2)
-	{
-		// 检查各自队列中元素是否不同
-		if (dq_xi[0] == dq_xj[0] && dq_xi[1] == dq_xj[1])
-		{
-			// 如果两个集合完全相同，则返回 false
-			return false;
-		}
-	}
-	return true;
+	return !(xi.a == xj.a && xi.b == xj.b);
 }
+
 struct Result
 {
 	int value; // 关联的整数值
@@ -704,7 +686,7 @@ int computePairDeltaOverlap(int xi, int xj)
 	int Delta_overlap = 0;
 	// 确保 xi < xj
 	int a = min(xi, xj), b = max(xi, xj);
-	long long key = ((long long)a) * MAX_VARS + b;
+	PairKey key = pair_key_directed(xi, xj);
 	// 如果 LCC 中没有该对，则返回 0
 	if (LCC.find(key) == LCC.end())
 	{
@@ -814,10 +796,7 @@ void initializePairStructures(const std::set<std::pair<int, int>> &criticalPairs
 		PairKey key = pair_key_directed(a, b);
 		int s = computePairScore(a, b);
 
-		if (is_qualified_pairs({a, b}))
-			LCQ[key] = s;
-		else
-			LCR[key] = s;
+		LCQ[key] = s;
 	}
 
 	std::cout << "Initialization complete. LCQ size = "
@@ -1063,61 +1042,69 @@ void checkQFlipOrRev(int c, int a, int b,
  * 取 LNQ 中分数最大的子句，返回 (pair.first, score)
  * 若 LNQ 为空或所有桶都空，则返回 (0,0)
  * ------------------------------------------------------------------ */
-std::pair<int,int> getBestUQFirstVarAndScore()
+std::pair<int, int> getBestUQFirstVarAndScore()
 {
-    if (LNQ.empty())             // 没有任何 Q(C)=1
-        return {0,0};
+	if (LNQ.empty()) // 没有任何 Q(C)=1
+		return {0, 0};
 
-    /* step‑1: 找最大的 score（键值） */
-    int maxScore = std::numeric_limits<int>::min();
-    for (const auto &kv : LNQ)          // kv.first = score
-        if (!kv.second.empty() && kv.first > maxScore)
-            maxScore = kv.first;
+	/* step‑1: 找最大的 score（键值） */
+	int maxScore = std::numeric_limits<int>::min();
+	for (const auto &kv : LNQ) // kv.first = score
+		if (!kv.second.empty() && kv.first > maxScore)
+			maxScore = kv.first;
 
-    if (maxScore == std::numeric_limits<int>::min())
-        return {0,0};                   // 所有桶都空
+	if (maxScore == std::numeric_limits<int>::min())
+		return {0, 0}; // 所有桶都空
 
-    /* step‑2: 在该桶内找 time_stamp 最早的变量 */
-    const std::deque<int> &dq = LNQ[maxScore];
+	/* step‑2: 在该桶内找 time_stamp 最早的变量 */
+	const std::deque<int> &dq = LNQ[maxScore];
 
-    int bestVar  = 0;
-    int bestTime = std::numeric_limits<int>::max();
-    for (int cid : dq) {
-        int v = P_C[cid].first;             // 只取 pair.first
-        int t = time_stamp[v];
-        if (t < bestTime) { bestTime = t; bestVar = v; }
-    }
-    return {bestVar, maxScore};
+	int bestVar = 0;
+	int bestTime = std::numeric_limits<int>::max();
+	for (int cid : dq)
+	{
+		int v = P_C[cid].first; // 只取 pair.first
+		int t = time_stamp[v];
+		if (t < bestTime)
+		{
+			bestTime = t;
+			bestVar = v;
+		}
+	}
+	return {bestVar, maxScore};
 }
-
 
 /* ------------------------------------------------------------------
  * 取 LNR 中分数最大的子句，返回 (pair.first, score)
  * ------------------------------------------------------------------ */
-std::pair<int,int> getBestRevFirstVarAndScore()
+std::pair<int, int> getBestRevFirstVarAndScore()
 {
-    if (LNR.empty())
-        return {0,0};
+	if (LNR.empty())
+		return {0, 0};
 
-    int maxScore = std::numeric_limits<int>::min();
-    for (const auto &kv : LNR)
-        if (!kv.second.empty() && kv.first > maxScore)
-            maxScore = kv.first;
+	int maxScore = std::numeric_limits<int>::min();
+	for (const auto &kv : LNR)
+		if (!kv.second.empty() && kv.first > maxScore)
+			maxScore = kv.first;
 
-    if (maxScore == std::numeric_limits<int>::min())
-        return {0,0};
+	if (maxScore == std::numeric_limits<int>::min())
+		return {0, 0};
 
-    const std::deque<int> &dq = LNR[maxScore];
+	const std::deque<int> &dq = LNR[maxScore];
 
-    int bestVar  = 0;
-    int bestTime = std::numeric_limits<int>::max();
-    for (int cid : dq) {
-        int v = P_C[cid].first;
-        int t = time_stamp[v];
-        if (t < bestTime) { bestTime = t; bestVar = v; }
-    }
-    return {bestVar, maxScore};
+	int bestVar = 0;
+	int bestTime = std::numeric_limits<int>::max();
+	for (int cid : dq)
+	{
+		int v = P_C[cid].first;
+		int t = time_stamp[v];
+		if (t < bestTime)
+		{
+			bestTime = t;
+			bestVar = v;
+		}
+	}
+	return {bestVar, maxScore};
 }
-
 
 #endif

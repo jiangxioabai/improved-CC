@@ -62,7 +62,7 @@ void update_clause_weights()
 		// 进入这个if的变量v的score一定在更新前<=0，否则变量v为1-step q-flippable，应该在goodvar_stack中
 		if(score[v]>0 &&  conf_change[v]==1 && already_in_goodvar_stack[v] ==0)
 		{	
-			push(v,goodvar_stack);
+			stack_push(v,goodvar_stack);
 			already_in_goodvar_stack[v] =1;
 		}
 	}
