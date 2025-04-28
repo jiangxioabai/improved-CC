@@ -494,7 +494,7 @@ void build_LCC_from_criticalPairs()
 						 back_inserter(common_clauses));
 
 		// 构造键，保证 xi < xj
-		PairKey key   = pair_key_directed(xi, xj);
+		PairKey key   = pair_key_canonical(xi, xj);
 		LCC[key] = common_clauses;
 		// std::cout << "Critical pair (" << xi << ", " << xj << ") common clause count = " << common_clauses.size() << std::endl;
 		// cout << LCC.size() << endl;
@@ -606,5 +606,6 @@ int verify_sol()
 
 	return 1;
 }
+
 
 #endif

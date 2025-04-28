@@ -88,38 +88,59 @@ int pick_var_1()
 		last_picked_var = best_var;
 		// cout << "[DEBUG] 1-step q-flippable var = " << best_var
 		// 	 << ", score[" << best_var << "]=" << score[best_var]
-		// 	 << ", original score=" << score[best_var]
-		// 	 << std::endl;
+		// 	//  << ", current solution = " << cur_soln[best_var]
+		// 	 << ", clause_weight = " << clause_weight[8808]
+		// 	 << ", clause content = {";
+
+		// 遍历子句10238的内容
+		//  for (lit *p = clause_lit[8808]; p->var_num != 0; ++p) {
+		// 	 cout << (p->sense ? "" : "-") << p->var_num << " ";
+		//  }
+		//  cout << "}"
+
+		//  << ", clause_weight = " << clause_weight[13303]
+		//  << ", clause content = {";
+
+		//  // 遍历子句10238的内容
+		//  for (lit *p = clause_lit[13303]; p->var_num != 0; ++p) {
+		// 	 cout << (p->sense ? "" : "-") << p->var_num << " ";
+		//  }
+		//  cout << "}"
+		//   << ", steps =" << step
+		//   << endl;
+#ifdef ENABLE_PAIR_ASSERT
+		dbg_assert_pending = false;
+#endif
 		return best_var;
 	}
 
 	/*SD (significant decreasing) mode, the level with aspiration*/
-	best_var = 0;
-	for (i = 0; i < unsatvar_stack_fill_pointer; ++i)
-	{
-		if (score[unsatvar_stack[i]] > sigscore)
-		{
-			best_var = unsatvar_stack[i];
-			break;
-		}
-	}
+	// best_var = 0;
+	// for (i = 0; i < unsatvar_stack_fill_pointer; ++i)
+	// {
+	// 	if (score[unsatvar_stack[i]] > sigscore)
+	// 	{
+	// 		best_var = unsatvar_stack[i];
+	// 		break;
+	// 	}
+	// }
 
-	for (++i; i < unsatvar_stack_fill_pointer; ++i)
-	{
-		v = unsatvar_stack[i];
-		if (score[v] > score[best_var])
-			best_var = v;
-		else if (score[v] == score[best_var] && time_stamp[v] < time_stamp[best_var])
-			best_var = v;
-	}
+	// for (++i; i < unsatvar_stack_fill_pointer; ++i)
+	// {
+	// 	v = unsatvar_stack[i];
+	// 	if (score[v] > score[best_var])
+	// 		best_var = v;
+	// 	else if (score[v] == score[best_var] && time_stamp[v] < time_stamp[best_var])
+	// 		best_var = v;
+	// }
 
-	if (best_var != 0)
-	{
-		sd_flip_count++;
-		// 更新 last_picked_var
-		last_picked_var = best_var;
-		return best_var;
-	}
+	// if (best_var != 0)
+	// {
+	// 	sd_flip_count++;
+	// 	// 更新 last_picked_var
+	// 	last_picked_var = best_var;
+	// 	return best_var;
+	// }
 
 	updateNonCriticalClausesInLN(step);
 
@@ -128,6 +149,8 @@ int pick_var_1()
 	best_var = 0;
 	// 先遍历critical ，再遍历noncritical，判断是否是qualified_pairs，再判断是否是valuable
 	pair<int, int> pairs;
+	pair<int, int> best_pair{0, 0};
+	int xi = 0, xj = 0;
 	int maxscore = 0;
 	// 调试：看看 LCQ 是否有数据
 	// cout << "[DEBUG] LCQ size = " << LCQ.size() << std::endl;
@@ -136,25 +159,28 @@ int pick_var_1()
 		if (entry.second > maxscore)
 		{
 			maxscore = entry.second;
-			int xi = int(entry.first >> 32); // 高 32 位
+			PairKey key = entry.first;
+			xi = int(key >> 32);
+			xj = int(key & 0xFFFFFFFF);
+			best_pair = {xi, xj};
 			best_var = xi;
 		}
 	}
 
 	// noncritical
-	auto uqvresult = getBestUQFirstVarAndScore();
-	int firstVar = uqvresult.first;
-	int uqScore = uqvresult.second;
+	int firstVar = 0, uqScore = 0, partner = 0;
+	std::tie(firstVar, uqScore, partner) = getAnyUQFirstVarAndScore();
 	if (firstVar != 0 && uqScore > maxscore)
 	{
 		// cout << "[DEBUG] getBestUQFirstVarAndScore => firstVar = "
 		// 	 << firstVar << ", uqcore=" << uqScore << std::endl;
 		maxscore = uqScore;
 		best_var = firstVar;
-		// cout << "[DEBUG] 2-step q-flippable var from LNQ = " << std::endl;
+		xi = firstVar;
+		xj = partner;
+		// cout << "[DEBUG] 2-step q-flippable var from LNQ  " << std::endl;
 	}
 	// else{
-	// 	cout << "[DEBUG] 2-step q-flippable var from LCQ = " << std::endl;
 	// }
 
 	// 记录 2-step 的时间
@@ -163,14 +189,26 @@ int pick_var_1()
 	if (best_var != 0)
 	{
 
+		// 如果想判断是否“连续”选同一个变量:
+		// cout << "[DEBUG] 2-step q-flippable var = " << best_var
+		// 	 << ", score[" << best_var << "]=" << score[best_var]
+		// 	 << ",maxscore=" << maxscore
+		// 	 << ", pair=(" << best_pair.first << "," << best_pair.second << ")"
+		// 	 << ", score[" << best_pair.second << "]=" << score[best_pair.second]
+		// 	 << ", steps=" << step
+		// 	 << std::endl;
 
-		// // 如果想判断是否“连续”选同一个变量:
-		// bool isConsecutive = (best_var == last_picked_var);
-		// std::cerr << "   => consecutive pick: "
-		//     << (isConsecutive ? "YES" : "NO") << std::endl;
 		step2_flip_count++;
 		// 更新 last_picked_var
 		last_picked_var = best_var;
+#ifdef ENABLE_PAIR_ASSERT
+		dbg_a = xi;
+		dbg_b = xj;
+		dbg_pairScore_before = maxscore;
+		dbg_scoreA_before = score[dbg_a];
+		dbg_scoreB_before = score[dbg_b];
+		dbg_assert_pending = true;
+#endif
 		return best_var;
 	}
 	// else
@@ -192,23 +230,55 @@ int pick_var_1()
 	// reversible变量
 	auto reversible_start = std::chrono::high_resolution_clock::now();
 	maxscore = 0;
+	// for (const auto &entry : LCR)
+	// { // 假设 LCQ_unordered 是 unordered_map<pair<int,int>, int, pair_hash>
+	// 	if (entry.second > maxscore)
+	// 	{
+	// 		maxscore = entry.second;
+	// 		int xi = int(entry.first >> 32); // 高 32 位
+	// 		best_var = xi;
+	// 	}
+	// }
+	// cout << "[DEBUG] from LCR manual iteration => best_var=" << best_var
+	// << ", maxscore=" << maxscore << endl;
+	// cout << "[DEBUG] LCR size = " << LCR.size() << std::endl;
+	// cout << "[DEBUG] LCR size = " << LCR.size() << std::endl;
+	PairKey best_pair_key = 0;
 	for (const auto &entry : LCR)
-	{ // 假设 LCQ_unordered 是 unordered_map<pair<int,int>, int, pair_hash>
-		if (entry.second > maxscore)
+	{
+		PairKey key = entry.first;
+		int score_of_pair = entry.second;
+
+		xi = int(key >> 32);		// 高32位
+		xj = int(key & 0xffffffff); // 低32位
+		// 调试输出每个pair以及对应的单变量score
+		// cout << "[DEBUG LCR pair] (" << xi << "," << xj << ") "
+		//     << "pair_score=" << score_of_pair
+		//     << ", score[" << xi << "]=" << score[xi]
+		//     << ", score[" << xj << "]=" << score[xj] << endl;
+
+		if (score_of_pair > maxscore)
 		{
-			maxscore = entry.second;
-			int xi = int(entry.first >> 32); // 高 32 位
+			maxscore = score_of_pair;
 			best_var = xi;
+			best_pair_key = key;
 		}
 	}
-	// cout << "[DEBUG] from LCR manual iteration => best_var=" << best_var 
-	// << ", maxscore=" << maxscore << endl;
-	// noncritical
-	auto result = getBestRevFirstVarAndScore();
 
-	int bestVar = result.first;
-	int bestScore = result.second;
-	// cout << "[DEBUG] getBestRevFirstVarAndScore => bestVar=" 
+	if (best_pair_key != 0)
+	{
+		xi = int(best_pair_key >> 32);
+		xj = int(best_pair_key & 0xffffffff);
+		// cout << "[DEBUG] from LCR manual iteration => best_var=" << best_var
+		//     << ", maxscore=" << maxscore
+		//     << ", pair=(" << xi << "," << xj << ")"
+		//     << ", score[" << xi << "]=" << score[xi]
+		//     << ", score[" << xj << "]=" << score[xj] << endl;
+	}
+
+	int bestVar = 0, bestScore = 0;
+	std::tie(bestVar, bestScore, partner) = getAnyRevFirstVarAndScore();
+	// cout << "[DEBUG] getBestRevFirstVarAndScore => bestVar="
 	// << bestVar << ", bestScore=" << bestScore << endl;
 	if (bestVar != 0 && bestScore > maxscore)
 	{
@@ -220,15 +290,23 @@ int pick_var_1()
 	}
 	auto reversible_end = std::chrono::high_resolution_clock::now();
 	reversible_flip_time += std::chrono::duration<double>(reversible_end - reversible_start).count();
-	
-	
+
 	if (best_var != 0)
 	{
-		// 在进行 return best_var 之前:
-		// std::cerr << "[DEBUG pick_var_1] step=" << step
-		//         << " pick current=" << best_var
-		//         << ", last=" << last_picked_var << std::endl;
+		// std::cerr << "[DEBUG reversible] step=" << step
+		// 		  << " pick current=" << best_var
+		// 		  << ", last=" << last_picked_var << std::endl;
 		reversible_flip_count++;
+		// 更新 last_picked_var
+		last_picked_var = best_var;
+#ifdef ENABLE_PAIR_ASSERT
+		dbg_a = xi;
+		dbg_b = xj;
+		dbg_pairScore_before = maxscore;
+		dbg_scoreA_before = score[dbg_a];
+		dbg_scoreB_before = score[dbg_b];
+		dbg_assert_pending = true;
+#endif
 		return best_var;
 	}
 
@@ -257,6 +335,9 @@ int pick_var_1()
 	diversification_flip_count++; // 增加次数
 	// 更新 last_picked_var
 	last_picked_var = best_var;
+#ifdef ENABLE_PAIR_ASSERT
+	dbg_assert_pending = false;
+#endif
 	return best_var;
 }
 

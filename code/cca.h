@@ -29,6 +29,17 @@
 #ifndef _CCA_H_
 #define _CCA_H_
 
+/* -------------------- 断言调试开关 -------------------- */
+#ifdef ENABLE_PAIR_ASSERT // 编译时 -DENABLE_PAIR_ASSERT 即可开启
+#include <cassert>
+static int dbg_a = 0, dbg_b = 0;
+static int dbg_pairScore_before = 0;
+static int dbg_scoreA_before = 0;
+static int dbg_scoreB_before = 0;
+static int dbg_score_PD_before = 0;
+static bool dbg_assert_pending = false;
+#endif
+
 #include "basis.h"
 #include "pair_key.h"
 
@@ -42,6 +53,7 @@
 #include <utility>
 #include <unordered_set>
 #include <set>
+#include <tuple> // 主要用于调试信息
 using PairKey = uint64_t;
 
 // 用vector来管理，代码更简洁易懂
@@ -81,8 +93,10 @@ struct pair_hash
 std::unordered_map<PairKey, int> LCQ; // qualified‑pair  → score
 std::unordered_map<PairKey, int> LCR; // reversible‑pair → score
 
-unordered_map<int, std::deque<int>> LNQ; // 记录 Q(C)=1 的子句，按score分组
-unordered_map<int, std::deque<int>> LNR;
+std::unordered_map<PairKey, int> PD; // 索引 = PairKey 映射到的下标
+
+std::unordered_set<int> LNQ; // 所有 Q(C)=1 的子句 id
+std::unordered_set<int> LNR; // 所有 R(C)=1 的子句 id
 
 // criticalVars 为全局变量，存储所有 critical 变量的编号
 extern std::vector<int> criticalVars;
@@ -121,67 +135,13 @@ set<pair<int, int>> unqualified_pairs;
 // // 定义存储 noncritical pairs 的集合（即重复出现的对）
 // map<pair <int, int>, int> noncritical_pairs;
 
-void removeClauseFromLNQ(int c, int oldScore)
-{
-	// 在 LNQ 中查找 oldScore
-	auto it = LNQ.find(oldScore);
-	if (it == LNQ.end())
-	{
-		// 说明 LNQ 中没有分数=oldScore 的条目，无需删除
-		return;
-	}
-
-	// 取到存放旧分数=oldScore 的子句队列
-	std::deque<int> &dq = it->second;
-
-	// 在 dq 里找到子句 c 并删除
-	// 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
-	for (auto dit = dq.begin(); dit != dq.end(); ++dit)
-	{
-		if (*dit == c)
-		{
-			dq.erase(dit);
-			break;
-		}
-	}
-
-	// 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
-	if (dq.empty())
-	{
-		LNQ.erase(it);
-	}
-}
-
-void removeClauseFromLNR(int c, int oldScore)
-{
-	// 在 LNQ 中查找 oldScore
-	auto it = LNR.find(oldScore);
-	if (it == LNR.end())
-	{
-		// 说明 LNQ 中没有分数=oldScore 的条目，无需删除
-		return;
-	}
-
-	// 取到存放旧分数=oldScore 的子句队列
-	std::deque<int> &dq = it->second;
-
-	// 在 dq 里找到子句 c 并删除
-	// 注意迭代器安全：一旦 erase 会使该迭代器失效，所以要先 break 再退出循环
-	for (auto dit = dq.begin(); dit != dq.end(); ++dit)
-	{
-		if (*dit == c)
-		{
-			dq.erase(dit);
-			break;
-		}
-	}
-
-	// 如果 dq 变空了，说明没有子句在 oldScore 这个桶中
-	if (dq.empty())
-	{
-		LNR.erase(it);
-	}
-}
+inline void addClauseToLNQ(int c) { LNQ.insert(c); }
+inline void addClauseToLNR(int c) { LNR.insert(c); }
+inline void removeClauseFromLNQ(int c) { LNQ.erase(c); }
+inline void removeClauseFromLNR(int c) { LNR.erase(c); }
+void initialize_PD();
+void update_deltas_on_flip(int v);
+int compute_pair_correction(int a, int b);
 
 // 将子句标记为不满足，并更新相关变量
 inline void unsat(int clause)								 // 这里clause应该表示子句在整个公式F中的下标（从0开始）
@@ -312,7 +272,6 @@ void init()
 		}
 
 		score[v] = 0;
-		score[v] = 0;
 		// 获取变量所在的所有文字数量
 		lit_count = var_lit_count[v];
 		// 遍历变量的所有文字，计算得分
@@ -324,14 +283,12 @@ void init()
 				if (var_lit[v][i].sense == cur_soln[v])
 				{
 					score[v]--; // 子句仅由当前变量满足，则得分减1
-					score[v]--; // 子句仅由当前变量满足，则得分减1
 				}
-				if (noncritical_clauses.find(c) != noncritical_clauses.end() && find(LN[v].begin(), LN[v].end(), c) == LN[v].end())
+				if (noncritical_clauses.count(c) && !LN[v].count(c))
 					LN[v].insert(c);
 			}
 			else if (sat_count[c] == 0)
 			{
-				score[v]++; // 子句不满足，则翻转该变量后子句满足，得分+1
 				score[v]++; // 子句不满足，则翻转该变量后子句满足，得分+1
 			}
 		}
@@ -388,6 +345,9 @@ void init()
 
 	// setting for the virtual var 0 时戳初始化为0
 	time_stamp[0] = 0;
+
+	// 初始化PD
+	initialize_PD();
 	// pscore[0]=0;
 	//  解、子句状态、得分初始化完毕后，初始化 LCQ,LCR
 	initializePairStructures(criticalpairs);
@@ -396,9 +356,9 @@ void init()
 void flip(int flipvar)
 {
 	// if (key_flip == 1)
-	LU.insert(flipvar); // 记录翻转变量
-
+	LU.insert(flipvar);						   // 记录翻转变量
 	cur_soln[flipvar] = 1 - cur_soln[flipvar]; // 翻转 flipvar 的值
+
 	// 选择翻转变量后应该更新flipvar及其邻居的var_change
 	// var_change用于判断其和邻居是否为qualifie pair
 	// below
@@ -406,7 +366,7 @@ void flip(int flipvar)
 	int i, j;
 	// 如果历史记录已经有两事件，则移除最早的一个
 	var_change[flipvar].push(flipvar);
-
+	// 翻转之后，输出flipvar对应var_change情况
 	for (i = 0; var_neighbor[flipvar][i] != 0; i++)
 	{
 		j = var_neighbor[flipvar][i];
@@ -418,14 +378,13 @@ void flip(int flipvar)
 	lit *clause_c;
 	// 在分数没更新时，保存flipvar的原始得分
 	int org_flipvar_score = score[flipvar];
-	int orig_flipvar_score = score[flipvar];
 
 	// update related clauses and neighbor vars 遍历flipvar所在的子句，q是flipvar的所有文字，c是文字对应的子句编号
 	for (lit *q = var_lit[flipvar]; (c = q->clause_num) >= 0; q++)
 	{
 		clause_c = clause_lit[c]; // 获取当前子句的文字列表
 		// 如果翻转后 flipvar 的当前值==子句中的文字真值
-		// 如，q->sense=0时，变量1->0，则文字假变真；q->sense=1时，变量0->1，则文字假变真。else则子句满足数-1
+		// q->sense=1时，变量0->1，则文字假变真。else则子句满足数-1
 		if (cur_soln[flipvar] == q->sense)
 		{
 			++sat_count[c];
@@ -441,15 +400,14 @@ void flip(int flipvar)
 				if (oldQ)
 				{
 					// c 在 LNQ[oldScore]
-					removeClauseFromLNQ(c, oldScore);
+					removeClauseFromLNQ(c);
 				}
 				if (oldR)
 				{
 					// c 在 LNR[oldScore]
-					removeClauseFromLNR(c, oldScore);
+					removeClauseFromLNR(c);
 				}
 				score[sat_var[c]] += clause_weight[c];
-				score[sat_var[c]] += 1; // 使用固定权重1
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					if (LN[v].find(c) != LN[v].end())
@@ -468,8 +426,8 @@ void flip(int flipvar)
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					score[v] -= clause_weight[c];
-					score[v] -= 1;	 // 固定权重1
-					LN[v].insert(c); // 将子句编号加入到变量的 LN 中
+					if (noncritical_clauses.count(c))
+					    LN[v].insert(c); // 将子句编号加入到变量的 LN 中
 				}
 				// 将子句标记为满足，并更新相关变量
 				sat(c);
@@ -490,11 +448,11 @@ void flip(int flipvar)
 					{
 
 						score[v] -= clause_weight[c];
-						score[v] -= 1;	// 固定权重1
 						sat_var[c] = v; // 目前唯一满足子句c的变量是v
 						break;
 					}
-					LN[v].insert(c); // 将子句编号加入到变量的 LN 中
+					if (noncritical_clauses.count(c))
+					    LN[v].insert(c); // 将子句编号加入到变量的 LN 中
 				}
 			}
 			else if (sat_count[c] == 0) // sat_count from 1 to 0
@@ -503,19 +461,18 @@ void flip(int flipvar)
 				for (lit *p = clause_c; (v = p->var_num) != 0; p++)
 				{
 					score[v] += clause_weight[c];
-					score[v] += 1; // 固定权重1
 					bool oldQ = (Q_C[c] == 1);
 					bool oldR = (R_C[c] == 1);
 					int oldScore = S_C[c];
 					if (oldQ)
 					{
 						// c 在 LNQ[oldScore]
-						removeClauseFromLNQ(c, oldScore);
+						removeClauseFromLNQ(c);
 					}
 					if (oldR)
 					{
 						// c 在 LNR[oldScore]
-						removeClauseFromLNR(c, oldScore);
+						removeClauseFromLNR(c);
 					}
 					if (LN[v].find(c) != LN[v].end())
 					{
@@ -531,7 +488,6 @@ void flip(int flipvar)
 	}
 	// flipvar翻转后，分数为翻转前的相反数，邻居分数已经在上面更新过了
 	score[flipvar] = -org_flipvar_score;
-	score[flipvar] = -orig_flipvar_score;
 	/*update CCD */
 	int index;
 	// 因为flipvar刚翻转过，conf_change设置为unflippable
@@ -564,8 +520,63 @@ void flip(int flipvar)
 		}
 	}
 
-	// 更新LCQ,LCR
+// 	#ifdef ENABLE_PAIR_ASSERT
+// 	if (dbg_assert_pending && flipvar == dbg_a)
+// 	{
+// 		int expect = dbg_pairScore_before - dbg_scoreA_before;
+// 		if (score[dbg_b] != expect)
+// 		{
+// 			auto print_clause_info = [](int cid)
+// 			{
+// 				std::cerr << "Clause " << cid << " (weight=" << clause_weight[cid] << "): { ";
+// 				for (lit *p = clause_lit[cid]; p->var_num != 0; ++p)
+// 				{
+// 					int lit_val = p->sense ? cur_soln[p->var_num] : 1 - cur_soln[p->var_num];
+// 					std::cerr << (p->sense ? "" : "-") << p->var_num
+// 							  << "(val=" << cur_soln[p->var_num]
+// 							  << ", lit=" << lit_val << ") ";
+// 				}
+// 				std::cerr << "}" << std::endl;
+// 			};
 
+// 			PairKey key = pair_key_canonical(dbg_a,dbg_b);
+// 			if (LCC.find(key) != LCC.end())
+// 			{
+// 				std::cerr << "[ASSERT FAIL] score[" << dbg_b << "] = " << score[dbg_b]
+// 						  << ", but expected = " << expect
+// 						  << " (pairScore=" << dbg_pairScore_before
+// 						  << ", B_beforeflip_score=" << dbg_scoreB_before
+// 						  << ", B_afterflip_score=" << score[dbg_b]
+// 						  << ", A_beforeflip_score=" << dbg_scoreA_before
+// 						  << ", A_afterflip_score=" << score[dbg_a]
+// 						  << ", PD[" << dbg_a << "," << dbg_b << "]=" << PD[pair_key_canonical(dbg_a, dbg_b)]
+// 						  << ")" << std::endl;
+
+// 				std::cerr << "Clauses in LCC(" << dbg_a << "," << dbg_b << "):" << std::endl;
+// 				for (int cid : LCC[key])
+// 				{
+// 					print_clause_info(cid);
+// 				}
+// 			}
+// 			else
+// 			{
+// 				std::cerr << "No clauses found in LCC(" << dbg_a << "," << dbg_b << ")" << std::endl;
+// 			}
+// 		}
+
+// 		assert(score[dbg_b] == expect &&
+// 			   "score[b] != pairScore_before - score[a]  (PAIR_ASSERT)");
+
+// 		assert(score[dbg_b] > 0 && already_in_goodvar_stack[dbg_b] &&
+// 			   "b 理应成为 1-step q-flippable,但未进入 goodvar_stack");
+
+// 		dbg_assert_pending = false; // 本次检查结束
+// 	}
+// #endif
+
+
+	// 更新LCQ,LCR
+	update_deltas_on_flip(flipvar);
 	for (p = var_neighbor[flipvar]; (v = *p) != 0; p++)
 	{
 		// 如果变量 xi 在 LCP 中有记录v
@@ -595,7 +606,166 @@ bool is_qualified_pairs(const std::pair<int, int> &pairs)
 	if (xi.a < 0 || xi.b < 0 || xj.a < 0 || xj.b < 0)
 		return true;
 
-	return !(xi.a == xj.a && xi.b == xj.b);
+	return !((xi.a == xj.a && xi.b == xj.b) || (xi.a == xj.a && xi.b == xj.b));
+}
+
+inline bool var_satisfies_clause_scan(int v, int c)
+{
+	for (lit *p = clause_lit[c]; p->var_num != 0; ++p)
+	{
+		if (p->var_num == v && cur_soln[v] == p->sense)
+			return true;
+	}
+	return false;
+}
+
+inline int compute_pair_correction(int a, int b)
+{
+	int corr = 0;
+	for (int c : LCC[pair_key_canonical(a, b)])
+	{ // 每个包含 a,b 的子句
+
+		if (sat_count[c] == 0 || (sat_count[c] == 2 && var_satisfies_clause_scan(a, c) && var_satisfies_clause_scan(b, c)))
+		{ // 正负相反
+			corr -= clause_weight[c];
+		}
+		else if ((sat_count[c] == 1 && sat_var[c] == a) || (sat_count[c] == 1 && sat_var[c] == b))
+		{
+			corr += clause_weight[c];
+		}
+	}
+	return corr;
+}
+
+// inline int compute_pair_correction(int a, int b)
+// {
+// 	int corr = 0;
+// 	PairKey key = pair_key_canonical(a, b);
+
+// 	for (int c : LCC[key])
+// 	{
+// 		// --- 新增调试 ---
+// 		if (c == 1293 || c == 3464)
+// 		{
+// 			std::cerr << "[DEBUG CORRECTION] Clause " << c
+// 					  << " (weight=" << clause_weight[c] << "), sat_count=" << sat_count[c]
+// 					  << ", sat_var=" << sat_var[c]
+// 					  << std::endl;
+
+// 			std::cerr << "   Literals: { ";
+// 			for (lit *p = clause_lit[c]; p->var_num != 0; ++p)
+// 			{
+// 				int var = p->var_num;
+// 				int lit_val = p->sense ? cur_soln[var] : 1 - cur_soln[var];
+// 				std::cerr << (p->sense ? "" : "-") << var
+// 						  << "(val=" << cur_soln[var]
+// 						  << ", lit=" << lit_val << ") ";
+// 			}
+// 			std::cerr << "}" << std::endl;
+// 		}
+// 		// --- 结束新增 ---
+
+// 		// 计算 correction，并且也打印每步累积变化
+// 		if (sat_count[c] == 0 || (sat_count[c] == 2 && var_satisfies_clause_scan(a, c) && var_satisfies_clause_scan(b, c)))
+// 		{
+// 			corr -= clause_weight[c];
+// 			if (c == 1293 || c == 3464)
+// 			{
+// 				std::cerr << "   [UPDATE] Subtract weight " << clause_weight[c] << ", corr now = " << corr << std::endl;
+// 			}
+// 		}
+// 		else if ((sat_count[c] == 1 && sat_var[c] == a) || (sat_count[c] == 1 && sat_var[c] == b))
+// 		{
+// 			corr += clause_weight[c];
+// 			if (c == 1293 || c == 3464)
+// 			{
+// 				std::cerr << "   [UPDATE] Add weight " << clause_weight[c] << ", corr now = " << corr << std::endl;
+// 			}
+// 		}
+// 	}
+
+// 	if (a == 1161 && b == 1978)
+// 	{
+// 		std::cerr << "[DEBUG CORRECTION FINAL] corr(" << a << "," << b << ") = " << corr << std::endl;
+// 	}
+
+// 	return corr;
+// }
+
+
+void initialize_PD()
+{
+	PD.clear(); // 先确保PD为空
+
+	for (int v = 1; v <= num_vars; ++v)
+	{
+		for (const auto &p : LCP[v])
+		{
+			PairKey key = pair_key_canonical(p.first, p.second);
+
+			if (PD.count(key))
+				continue; // 避免重复计算
+
+			int a = key >> 32, b = key & 0xffffffff;
+
+			// 计算误差correction
+			int correction = compute_pair_correction(a, b);
+
+			PD[key] = correction;
+		}
+	}
+}
+
+void update_deltas_on_flip(int v)
+{
+	// 扫描 v 出现的所有子句
+	int i, c;
+	for (i = 0; i < var_lit_count[v]; ++i)
+	{ // 获取该文字所在子句的编号
+		c = var_lit[v][i].clause_num;
+
+		// 从 clause_lit[c] 里摘出除了 v 以外的两个变量 x, y
+		int x = 0, y = 0;
+		for (lit *q = clause_lit[c]; q->var_num != 0; ++q)
+		{
+			int u = q->var_num;
+			if (u == v)
+				continue;
+			if (!x)
+				x = u;
+			else if (!y)
+				y = u;
+		}
+		if (!x || !y)
+			continue; // 万一不是 3-字句就跳过
+		// if ((x == 1978 && y == 1161) || (x == 1161 && y == 1978)){
+		// 	std::cerr << "[DEBUG UPDATE] Updating pair (" << x << ", " << y << ") in clause " << c << std::endl;
+		// 	std::cerr << "   Literals: { ";
+		// }
+
+		PairKey key = pair_key_canonical(x, y);
+
+		int corr = compute_pair_correction(x, y);
+		PD[key] = corr;
+	}
+
+	for (const auto &p : LCP[v])
+	{
+		PairKey key = pair_key_canonical(p.first, p.second);
+
+		int a = key >> 32, b = key & 0xffffffff; // 你原有的拆键宏
+		// ① 把旧值拿出来
+		// ② 只更新“误差”部分
+		// 2.1 取 a,b 的单变量 score (你本来就维护的数组)
+
+		// 2.2 查当前子句状态判四类误差 (下文给公式)
+		int correction = compute_pair_correction(a, b);
+		PD[key] = correction;
+
+		/* 如果你有 LCQ/LCR 要跟着调分数：
+		   先把这个 pair 在旧桶里 erase，再丢进新桶 → 你之前已经写好的接口
+		*/
+	}
 }
 
 struct Result
@@ -603,9 +773,9 @@ struct Result
 	int value; // 关联的整数值
 	bool re;   // 操作是否成功
 };
+
 Result is_valuable_for_critical(int xi, int xj)
 {
-	// 根据你的说明：
 	// score(F, X_j, s_i_t) = computePairScore(xi, xj) - score[xi]
 	// score(F, X_i, s_i,j_t) = computePairScore(xi, xj) - score[xj]
 	//
@@ -616,7 +786,7 @@ Result is_valuable_for_critical(int xi, int xj)
 	// 4. (computePairScore(xi, xj) - score[xj]) <= 0
 	//
 	// 下面将 computePairScore(xi, xj) 用 n_i_j 表示：
-	int n_i_j = computePairScore(xi, xj);
+	int n_i_j = PD[pair_key_canonical(xi, xj)] + score[xi] + score[xj];
 	// 条件2
 	bool cond2 = (n_i_j - score[xi] > 0);
 	// 条件1: 其实就是 n_i_j > 0
@@ -626,6 +796,9 @@ Result is_valuable_for_critical(int xi, int xj)
 	// 条件4: (n_i_j - score[xj]) <= 0
 	bool cond4 = ((score[xj] - n_i_j) <= 0);
 	// std::cout << "Checking valuable for critical for pair (" << xi << ", " << xj << "):\n"
+	//           << "    score[" << xi << "] = " << score[xi] << "\n"
+	// 		  << "    score[" << xj << "] = " << score[xj] << "\n"
+	// 		  << "    PD[" << xi << ", " << xj << "] = " << PD[pair_key_canonical(xi, xj)] << "\n"
 	// 		  << "    computePairScore = " << n_i_j << "\n"
 	// 		  << "    cond1 (score>0): " << cond1 << "\n"
 	// 		  << "    cond2 (n_i_j - score[" << xi << "] > 0): " << cond2 << "\n"
@@ -654,75 +827,73 @@ Result is_valuable_for_noncritical(int xi, int xj)
 // 此处假设 N_score[v] 已经记录了单个变量 v 的得分
 // 并且使用前面实现的 computePairDeltaOverlap(xi, xj) 计算 Delta_overlap
 
-bool clauseSatisfiedWithFlips(int c, int flipXi, int flipXj)
-{
-	// 遍历子句 c 中的每个文字
-	for (int j = 0; j < clause_lit_count[c]; j++)
-	{
-		int var = clause_lit[c][j].var_num;
-		if (var == 0)
-			break;
-		int sense = clause_lit[c][j].sense;
-		// 取当前变量的值
-		int val = cur_soln[var];
-		// 如果 var 等于 flipXi，则模拟翻转该变量
-		if (var == flipXi)
-			val = 1 - val;
-		// 如果 var 等于 flipXj，则模拟翻转该变量
-		if (var == flipXj)
-			val = 1 - val;
-		// 对于文字：若 sense==1，则文字为真要求变量值==1；若 sense==0，则要求变量值==0
-		bool literalTrue = (sense == 1 ? (val == 1) : (val == 0));
-		if (literalTrue)
-			return true; // 子句中只要有一个文字为真，则子句满足
-	}
-	return false;
-}
+// bool clauseSatisfiedWithFlips(int c, int flipXi, int flipXj)
+// {
+// 	// 遍历子句 c 中的每个文字
+// 	for (int j = 0; j < clause_lit_count[c]; j++)
+// 	{
+// 		int var = clause_lit[c][j].var_num;
+// 		if (var == 0)
+// 			break;
+// 		int sense = clause_lit[c][j].sense;
+// 		// 取当前变量的值
+// 		int val = cur_soln[var];
+// 		// 如果 var 等于 flipXi，则模拟翻转该变量
+// 		if (var == flipXi)
+// 			val = 1 - val;
+// 		// 如果 var 等于 flipXj，则模拟翻转该变量
+// 		if (var == flipXj)
+// 			val = 1 - val;
+// 		// 对于文字：若 sense==1，则文字为真要求变量值==1；若 sense==0，则要求变量值==0
+// 		bool literalTrue = (sense == 1 ? (val == 1) : (val == 0));
+// 		if (literalTrue)
+// 			return true; // 子句中只要有一个文字为真，则子句满足
+// 	}
+// 	return false;
+// }
 
 // 下面函数实现伪代码计算 Delta_overlap
 // 计算变量对 (xi, xj) 对应的 Delta_overlap，依赖于 LCC(xi,xj)
-int computePairDeltaOverlap(int xi, int xj)
-{
-	int Delta_overlap = 0;
-	// 确保 xi < xj
-	int a = min(xi, xj), b = max(xi, xj);
-	PairKey key = pair_key_directed(xi, xj);
-	// 如果 LCC 中没有该对，则返回 0
-	if (LCC.find(key) == LCC.end())
-	{
-		return 0;
-	}
+// int computePairDeltaOverlap(int xi, int xj)
+// {
+// 	int Delta_overlap = 0;
+// 	PairKey key = pair_key_canonical(xi, xj);
+// 	// 如果 LCC 中没有该对，则返回 0
+// 	if (LCC.find(key) == LCC.end())
+// 	{
+// 		cout << "LCC not found for pair (" << xi << ", " << xj << ")" << endl;
+// 	}
 
-	vector<int> &clauseList = LCC[key];
-	// 遍历 LCC(xi, xj) 中所有子句 C_t
-	for (int c : clauseList)
-	{
-		// old_satisfied：在当前赋值 s 下，子句 c 是否满足（1或0）
-		int old_satisfied = clauseSatisfiedWithFlips(c, -1, -1) ? clause_weight[c] : 0;
-		// new_satisfied_ij：在同时翻转 xi 和 xj 后，子句 c 是否满足
-		int new_satisfied_ij = clauseSatisfiedWithFlips(c, xi, xj) ? clause_weight[c] : 0;
-		int change_for_ij = new_satisfied_ij - old_satisfied;
-		// onlyXi_satisfied：只翻转 xi 后子句 c 是否满足
-		int onlyXi_satisfied = clauseSatisfiedWithFlips(c, xi, -1) ? clause_weight[c] : 0;
-		int change_for_i = onlyXi_satisfied - old_satisfied;
-		// onlyXj_satisfied：只翻转 xj 后子句 c 是否满足
-		int onlyXj_satisfied = clauseSatisfiedWithFlips(c, -1, xj) ? clause_weight[c] : 0;
-		int change_for_j = onlyXj_satisfied - old_satisfied;
-		int overlap_change_for_C = change_for_ij - change_for_i - change_for_j;
-		Delta_overlap += overlap_change_for_C;
-	}
-	// cout << "Delta_overlap for pair (" << xi << ", " << xj << ") = " << Delta_overlap << endl;
-	return Delta_overlap;
-}
+// 	vector<int> &clauseList = LCC[key];
+// 	// 遍历 LCC(xi, xj) 中所有子句 C_t
+// 	for (int c : clauseList)
+// 	{
+// 		// old_satisfied：在当前赋值 s 下，子句 c 是否满足（1或0）
+// 		int old_satisfied = clauseSatisfiedWithFlips(c, -1, -1) ? clause_weight[c] : 0;
+// 		// new_satisfied_ij：在同时翻转 xi 和 xj 后，子句 c 是否满足
+// 		int new_satisfied_ij = clauseSatisfiedWithFlips(c, xi, xj) ? clause_weight[c] : 0;
+// 		int change_for_ij = new_satisfied_ij - old_satisfied;
+// 		// onlyXi_satisfied：只翻转 xi 后子句 c 是否满足
+// 		int onlyXi_satisfied = clauseSatisfiedWithFlips(c, xi, -1) ? clause_weight[c] : 0;
+// 		int change_for_i = onlyXi_satisfied - old_satisfied;
+// 		// onlyXj_satisfied：只翻转 xj 后子句 c 是否满足
+// 		int onlyXj_satisfied = clauseSatisfiedWithFlips(c, -1, xj) ? clause_weight[c] : 0;
+// 		int change_for_j = onlyXj_satisfied - old_satisfied;
+// 		int overlap_change_for_C = change_for_ij - change_for_i - change_for_j;
+// 		Delta_overlap += overlap_change_for_C;
+// 	}
+// 	// cout << "Delta_overlap for pair (" << xi << ", " << xj << ") = " << Delta_overlap << endl;
+// 	return Delta_overlap;
+// }
 
-int computePairScore(int xi, int xj)
-{
-	// 假设 N_score 是一个全局数组，其中 N_score[v] 表示 N(F, v, s)
+// int computePairScore(int xi, int xj)
+// {
+// 	// 假设 N_score 是一个全局数组，其中 N_score[v] 表示 N(F, v, s)
 
-	int delta_overlap = computePairDeltaOverlap(xi, xj);
-	// cout << "Delta_overlap for pair (" << xi << ", " << xj << ") = " << delta_overlap << endl;
-	return score[xi] + score[xj] + delta_overlap;
-}
+// 	int delta_overlap = computePairDeltaOverlap(xi, xj);
+// 	// cout << "Delta_overlap for pair (" << xi << ", " << xj << ") = " << delta_overlap << endl;
+// 	return score[xi] + score[xj] + delta_overlap;
+// }
 
 // 更新函数：直接使用传入的对 (xi,xj) 的顺序，不转换
 void updatePairStructures(int xi, int xj)
@@ -730,41 +901,41 @@ void updatePairStructures(int xi, int xj)
 	PairKey key = pair_key_directed(xi, xj);
 
 	bool valuable = is_valuable_for_critical(xi, xj).re;
-	bool qualified = is_qualified_pairs({xi, xj});
 
-	bool inLCQ = LCQ.find(key) != LCQ.end();
-	bool inLCR = LCR.find(key) != LCR.end();
-
-	/* ---------- ❶  如果不再 valuable : 直接删除 ---------- */
 	if (!valuable)
 	{
-		if (inLCQ)
-			LCQ.erase(key);
-		if (inLCR)
-			LCR.erase(key);
-		return; // 结束，没算 score
+		// ❶ 如果不再 valuable : 直接删除
+		LCQ.erase(key);
+		LCR.erase(key);
+		return; // 直接返回，不再更新
 	}
 
-	/* ---------- ❷  already in right bucket? ---------- */
-	if (qualified && inLCQ)
-		return; // 好的 pair 已在 LCQ ✔
-	if (!qualified && inLCR)
-		return; // 不 qualified 已在 LCR ✔
-
-	/* ---------- ❸  其余情况才需要计算分数 ---------- */
-	int scoreVal = computePairScore(xi, xj);
+	// 此时valuable一定是true，继续判断qualified
+	bool qualified = is_qualified_pairs({xi, xj});
+	int scoreVal = PD[key] + score[xi] + score[xj];
+	// if ((xi == 2321 && xj == 3715) || (xi == 3715 && xj == 2321))
+	// {
+	// 	std::cout << "[DEBUG updatePairStructures] pair=(" << xi << "," << xj << ")"
+	// 			  << ", key=" << key
+	// 			  << ", valuable=" << valuable
+	// 			  << ", qualified=" << qualified
+	// 			  << ", score[" << xi << "]=" << score[xi]
+	// 			  << ", score[" << xj << "]=" << score[xj]
+	// 			  << ", PD[key]=" << PD[key]
+	// 			  << std::endl;
+	// }
 
 	if (qualified)
 	{
-		LCQ[key] = scoreVal; // 插或覆盖
-		if (inLCR)
-			LCR.erase(key); // 从另一桶移除
+		// ❷ valuable & qualified，更新到LCQ，确保LCR删除
+		LCQ[key] = scoreVal;
+		LCR.erase(key); // 删除，确保不会同时在两个集合里
 	}
 	else
 	{
+		// ❸ valuable & !qualified，更新到LCR，确保LCQ删除
 		LCR[key] = scoreVal;
-		if (inLCQ)
-			LCQ.erase(key);
+		LCQ.erase(key); // 删除，确保不会同时在两个集合里
 	}
 }
 
@@ -794,7 +965,7 @@ void initializePairStructures(const std::set<std::pair<int, int>> &criticalPairs
 			std::swap(a, b); // 方向取 (xj,xi)
 
 		PairKey key = pair_key_directed(a, b);
-		int s = computePairScore(a, b);
+		int s = PD[key];
 
 		LCQ[key] = s;
 	}
@@ -812,59 +983,6 @@ void initializePairStructures(const std::set<std::pair<int, int>> &criticalPairs
  *     (即根据论文 4.3.3 中描述的逻辑，更新 Q(C), R(C), S(C), P(C), T(C))
  *******************************************************/
 
-// 示例：
-// - LN[x] 记录 x 参与的、满足 N(C)=1 的所有非关键子句编号
-// - T_C[c] 上次更新的步骤，如果 == currentStep 表示已更新过
-// - Q_C[c], R_C[c], S_C[c] 为全局数组，存储 Q(C), R(C), S(C)
-// - P_C[c] 建议使用全局 array / map 存储 pair<int,int>，也可以内置在 NonCriticalClause 中
-// - getSingleSatisfiedVar(c) / checkAndUpdateClause(c) 等函数需要你自行实现
-// void removeOldRecordInLNQorLNR(int c, bool oldQ, bool oldR, int oldScore)
-// {
-// 	// 若旧状态 Q=1 => c 在 LNQ[oldScore] 里
-// 	if (oldQ)
-// 	{
-// 		auto it = LNQ.find(oldScore);
-// 		if (it != LNQ.end())
-// 		{
-// 			auto &dq = it->second;
-// 			// O(n) 在 dq 中找 c 并删除
-// 			for (auto dit = dq.begin(); dit != dq.end(); ++dit)
-// 			{
-// 				if (*dit == c)
-// 				{
-// 					dq.erase(dit);
-// 					break;
-// 				}
-// 			}
-// 			if (dq.empty())
-// 			{
-// 				LNQ.erase(it);
-// 			}
-// 		}
-// 	}
-// 	// 若旧状态 R=1 => c 在 LNR[oldScore] 里
-// 	if (oldR)
-// 	{
-// 		auto it = LNR.find(oldScore);
-// 		if (it != LNR.end())
-// 		{
-// 			auto &dq = it->second;
-// 			// 同理在 dq 中找 c
-// 			for (auto dit = dq.begin(); dit != dq.end(); ++dit)
-// 			{
-// 				if (*dit == c)
-// 				{
-// 					dq.erase(dit);
-// 					break;
-// 				}
-// 			}
-// 			if (dq.empty())
-// 			{
-// 				LNR.erase(it);
-// 			}
-// 		}
-// 	}
-// }
 void pickOthers(int c, int xj, int &xk, int &xl);
 void checkQFlipOrRev(int c, int a, int b, bool &foundUQ, bool &foundR,
 					 int &bestScore, std::pair<int, int> &bestPair);
@@ -922,7 +1040,7 @@ void updateNonCriticalClausesInLN(int currentStep)
 				S_C[c] = bestScore;
 				// P_C[] 你可用全局 array 或 map
 				P_C[c] = bestPair;
-				LNQ[bestScore].push_back(c);
+				LNQ.insert(c);
 			}
 			else if (foundR)
 			{
@@ -930,7 +1048,7 @@ void updateNonCriticalClausesInLN(int currentStep)
 				R_C[c] = 1;
 				S_C[c] = bestScore;
 				P_C[c] = bestPair;
-				LNR[bestScore].push_back(c);
+				LNR.insert(c);
 			}
 			else
 			{
@@ -991,10 +1109,19 @@ void checkQFlipOrRev(int c, int a, int b,
 	// 先看是否 u-q-flippable
 	if (is_valuable_for_noncritical(a, b).re)
 	{
+		// 计算分数
+		int sc = score[a] + score[b];
+		if (sat_count[c] == 0 || (sat_count[c] == 2 && var_satisfies_clause_scan(a, c) && var_satisfies_clause_scan(b, c)))
+		{ // 正负相反
+			sc -= clause_weight[c];
+		}
+		else if ((sat_count[c] == 1 && sat_var[c] == a) || (sat_count[c] == 1 && sat_var[c] == b))
+		{
+			sc += clause_weight[c];
+		}
 		if (is_qualified_pairs({a, b}))
 		{
-			// 计算分数
-			int sc = score[a] + score[b] + clause_weight[c];
+
 			// 比较 sc 与 bestScore
 			if (!foundUQ)
 			{
@@ -1014,7 +1141,6 @@ void checkQFlipOrRev(int c, int a, int b,
 		}
 		else
 		{
-			int sc = score[a] + score[b] + clause_weight[c];
 			if (!foundR)
 			{
 				foundR = true;
@@ -1034,77 +1160,41 @@ void checkQFlipOrRev(int c, int a, int b,
 	}
 }
 
-/**
- * 返回分数最高的 u-q 子句编号
- * 如果 LNQ 为空则返回 -1
- */
-/* ------------------------------------------------------------------
- * 取 LNQ 中分数最大的子句，返回 (pair.first, score)
- * 若 LNQ 为空或所有桶都空，则返回 (0,0)
- * ------------------------------------------------------------------ */
-std::pair<int, int> getBestUQFirstVarAndScore()
+// 下面是获取任意一个 u-q-flippable 和 reversible 的变量对
+std::tuple<int, int, int> getAnyUQFirstVarAndScore()
 {
-	if (LNQ.empty()) // 没有任何 Q(C)=1
-		return {0, 0};
-
-	/* step‑1: 找最大的 score（键值） */
-	int maxScore = std::numeric_limits<int>::min();
-	for (const auto &kv : LNQ) // kv.first = score
-		if (!kv.second.empty() && kv.first > maxScore)
-			maxScore = kv.first;
-
-	if (maxScore == std::numeric_limits<int>::min())
-		return {0, 0}; // 所有桶都空
-
-	/* step‑2: 在该桶内找 time_stamp 最早的变量 */
-	const std::deque<int> &dq = LNQ[maxScore];
-
-	int bestVar = 0;
-	int bestTime = std::numeric_limits<int>::max();
-	for (int cid : dq)
-	{
-		int v = P_C[cid].first; // 只取 pair.first
-		int t = time_stamp[v];
-		if (t < bestTime)
-		{
-			bestTime = t;
-			bestVar = v;
-		}
-	}
-	return {bestVar, maxScore};
+	if (LNQ.empty())
+		return {0, 0, 0};
+	int c = *LNQ.begin();
+	int a = P_C[c].first;
+	int b = P_C[c].second;
+	int s = S_C[c];
+	return {a, s, b}; // 返回 (a, score, b)
 }
 
-/* ------------------------------------------------------------------
- * 取 LNR 中分数最大的子句，返回 (pair.first, score)
- * ------------------------------------------------------------------ */
-std::pair<int, int> getBestRevFirstVarAndScore()
+std::tuple<int, int, int> getAnyRevFirstVarAndScore()
 {
 	if (LNR.empty())
-		return {0, 0};
+		return {0, 0, 0};
 
-	int maxScore = std::numeric_limits<int>::min();
-	for (const auto &kv : LNR)
-		if (!kv.second.empty() && kv.first > maxScore)
-			maxScore = kv.first;
-
-	if (maxScore == std::numeric_limits<int>::min())
-		return {0, 0};
-
-	const std::deque<int> &dq = LNR[maxScore];
-
-	int bestVar = 0;
-	int bestTime = std::numeric_limits<int>::max();
-	for (int cid : dq)
+	for (int c : LNR)
 	{
-		int v = P_C[cid].first;
-		int t = time_stamp[v];
-		if (t < bestTime)
-		{
-			bestTime = t;
-			bestVar = v;
-		}
+		const auto &p = P_C[c]; // 从 P_C 获取变量对
+		int pairscore = S_C[c]; // 从 S_C 获取对应的 score
+
+		// std::cout << "Clause ID: " << c << std::endl;
+		// std::cout << "Pair: " << p.first << ", " << p.second << std::endl;
+		// cout << "first score =" << score[P_C[c].first] << endl;
+		// cout << ",second score =" << score[P_C[c].second] << endl;
+		// std::cout << "pairScore = " << pairscore << std::endl;
+		// std::cout << "------------------------" << std::endl;
 	}
-	return {bestVar, maxScore};
+
+	int c = *LNR.begin();
+	int a = P_C[c].first;
+	int b = P_C[c].second;
+	int s = S_C[c];
+	return {a, s, b}; // 返回 (a, score, b)
 }
 
 #endif
