@@ -43,10 +43,25 @@ To run the solver:
 - [x] 300s 截断时间可能太短，尝试延长至 3600 秒  
 - [x] 换用 SATLIB 中的 benchmark，经验上这些更简单  
 - [x] CCAnr 原版为结构化问题设计，可能需仿照 swcca 修改以适配 random 问题  
-- [ ] 详细对照SWCC,SWCCA,查看代码的问题。
+- [x] 详细对照SWCC,SWCCA,查看代码的问题。
 
 
 ## 详细记录
+
+<details>
+
+<summary>4/28</summary>
+
+### 做了啥
+1. 修改完了所有的bug,在进行步数统计的实验。
+2. 有1000s和5000s两个版本
+
+### 计划
+1. 先进行步数上的比较
+2. 或许减少更新的频率
+
+
+</details>
 
 <details>
 
