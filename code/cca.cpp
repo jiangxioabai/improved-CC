@@ -25,7 +25,7 @@ int pick_var()
 			if(score[v]>score[best_var]) best_var = v;
 			else if(score[v]==score[best_var] && time_stamp[v]<time_stamp[best_var]) best_var = v;
 		}
-		
+
 		return best_var;
 	}
 	
@@ -54,7 +54,6 @@ int pick_var()
 	update_clause_weights();
 	
 	/*focused random walk*/
-
 	c = unsat_stack[rand()%unsat_stack_fill_pointer];
 	clause_c = clause_lit[c];
 	best_var = clause_c[0].var_num;
@@ -65,7 +64,9 @@ int pick_var()
 		// if(score[v]>score[best_var]) best_var = v;
 		// else if(score[v]==score[best_var]&&time_stamp[v]<time_stamp[best_var]) best_var = v;
 	}
-	
+	// 记录 diversification 的时间
+
+
 	return best_var;
 }
 
@@ -120,11 +121,11 @@ int main(int argc, char* argv[])
     
 	cout<<"c Instance: Number of variables = "<<num_vars<<endl;
 	cout<<"c Instance: Number of clauses = "<<num_clauses<<endl;
-	cout<<"c Instance: Ratio = "<<ratio<<endl;
+	cout<<"c Instance: Ratio = "<<instanceratio<<endl;
 	cout<<"c Instance: Formula length = "<<formula_len<<endl;
 	cout<<"c Instance: Avg (Min,Max) clause length = "<<avg_clause_len<<" ("<<min_clause_len<<","<<max_clause_len<<")"<<endl;
 	cout<<"c Algorithmic: Random seed = "<<seed<<endl;
-    
+
 	for (tries = 0; tries <= max_tries; tries++) 
 	{
 		 settings();
@@ -152,7 +153,8 @@ int main(int argc, char* argv[])
     
     cout<<"c solveSteps = "<<tries<<" tries + "<<step<<" steps (each try has "<<max_flips<<" steps)."<<endl;
     cout<<"c solveTime = "<<comp_time<<endl;
-	 
+
+
     free_memory();
 
     return 0;
