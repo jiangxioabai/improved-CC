@@ -1,10 +1,11 @@
 #ifndef _BASIS_H_
 #define _BASIS_H_
-
+#include "pair_key.h"
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
 #include <cmath>
+#include <algorithm>
 
 using namespace std;
 
@@ -88,6 +89,17 @@ int		tries;
 int		max_flips = 2000000000;
 int		step;
 
+// 关于LCQ/LCR数据结构
+std::vector<int16_t>            PD;
+std::vector<std::vector<int>>   LCC_vec;
+std::vector<std::vector<uint32_t>> LCP_vec;   // var → list<cid>
+std::unordered_set<PairKey> criticalDir;
+std::unordered_map<PairKey,uint32_t> dir_key2cid;
+std::vector<std::pair<int,int>> crit_pairs;
+std::vector<PairKey>              dir_keys;
+// 非-critical 且只出现一次的有向 pair → 唯一子句 cid+1
+static std::unordered_map<PairKey,uint32_t> uniq_pair_clause;
+
 void setup_datastructure();
 void free_memory();
 int build_instance(char *filename);
@@ -108,10 +120,134 @@ void free_memory()
 	}
 }
 
+void build_critical_index(int num_vars)
+{
+    const uint32_t K = (uint32_t)crit_pairs.size();   // 有向条目数
+
+    PD.assign(K, 0);
+    LCC_vec.assign(K, {});
+    LCP_vec.assign(num_vars+1, {});
+
+    for (uint32_t cid = 0; cid < K; ++cid)
+    {
+        int xi = crit_pairs[cid].first;   // 有向：xi→xj
+        int xj = crit_pairs[cid].second;
+        LCP_vec[xi].push_back(cid);
+        LCP_vec[xj].push_back(cid);
+        PairKey k = pair_key_directed(crit_pairs[cid].first,
+                                  crit_pairs[cid].second);
+        dir_key2cid[k] = cid;        // 有向 key → cid
+    }
+    // 在 build_critical_index() 结束时（或紧跟着 dir_keys.assign(...) 之后）
+
+    uint32_t N = 0;
+    while ((1u << N) < K) ++N;          // 求最小 N 使得 2^N ≥ K
+    const uint32_t M = 1u << N;         // M 真正数组长度（2 的幂）
+
+    static uint32_t MASK = M - 1;       // 全局 / static 方便别处直接用
+    cid_of_key.assign(M, UINT32_MAX);          // 先全部填无效值
+
+    for (uint32_t cid = 0; cid < K; ++cid)
+    {
+        PairKey key = dir_keys[cid];           // 64-bit：hi‖lo
+        uint32_t idx = uint32_t(key) & MASK;   // 低 N 位映射到 0 … M-1
+        cid_of_key[idx] = cid;
+    }
+}
+void build_LCC_from_criticalPairs()
+{
+    for(auto& v : LCC_vec) v.clear();       // 长度 = K
+
+    for(uint32_t cid = 0; cid < crit_pairs.size(); ++cid){
+        int xi = crit_pairs[cid].first;
+        int xj = crit_pairs[cid].second;
+
+        /* 收集 xi、xj 出现的子句编号（去重）——与原代码相同 */
+        std::vector<int> c_xi, c_xj;
+        for(int k=0; var_lit[xi][k].clause_num!=-1; ++k)
+            c_xi.push_back(var_lit[xi][k].clause_num);
+        for(int k=0; var_lit[xj][k].clause_num!=-1; ++k)
+            c_xj.push_back(var_lit[xj][k].clause_num);
+
+        std::sort(c_xi.begin(),c_xi.end());
+        c_xi.erase(std::unique(c_xi.begin(),c_xi.end()),c_xi.end());
+        std::sort(c_xj.begin(),c_xj.end());
+        c_xj.erase(std::unique(c_xj.begin(),c_xj.end()),c_xj.end());
+
+        std::set_intersection(c_xi.begin(),c_xi.end(),
+                              c_xj.begin(),c_xj.end(),
+                              std::back_inserter(LCC_vec[cid]));
+    }
+}
+
+
+int temp_lit[MAX_VARS]; // the max length of a clause can be MAX_VARS
+
+void build_critical_pairs()
+{
+    criticalDir.clear();
+    uniq_pair_clause.clear();          // ☆ 新增
+    std::unordered_map<PairKey,int> firstSeen;   // canonical key → 1st-clause id
+
+    for (int c = 1; c <= num_clauses; ++c) {
+
+        /* 取子句的去重变量列表 ------------------------------------------------ */
+        std::vector<int> lits;
+        lits.reserve(clause_lit_count[c]);
+        for (int j = 0; j < clause_lit_count[c]; ++j)
+            lits.push_back(std::abs(clause_lit[c][j].var_num));
+
+        std::sort(lits.begin(), lits.end());
+        lits.erase(std::unique(lits.begin(),lits.end()), lits.end());
+
+        /* 枚举无向对 ---------------------------------------------------------- */
+        const int L = (int)lits.size();
+        for (int i = 0; i < L; ++i)
+            for (int j = i+1; j < L; ++j) {
+                int a = lits[i], b = lits[j];           // a<b
+                PairKey kCanon = pair_key_directed(a,b);
+
+                auto it = firstSeen.find(kCanon);
+                if (it == firstSeen.end()) {            // 第一次见
+                    firstSeen[kCanon] = c;
+                    continue;
+                }
+                if (it->second == c)                    // 同一子句再次出现
+                    continue;
+
+                /* 第二次出现在不同子句 → 升格 critical (两个方向) ---------- */
+                criticalDir.insert(pair_key_directed(a,b));  // a→b
+                criticalDir.insert(pair_key_directed(b,a));  // b→a
+            }
+    }
+
+    /* ③ 把“仍停留在 firstSeen 中、且不在 criticalDir 中”的 pair 认定为唯一 */
+    for (auto &[kCanon, cid] : firstSeen) {
+        if (criticalDir.count(kCanon)) continue;          // 已经升格 critical
+        int a = key_hi(kCanon), b = key_lo(kCanon);       // 拆成 a<b
+        uint32_t v = cid;                                 // cid≥1
+        uniq_pair_clause[pair_key_directed(a,b)] = v;     // a→b
+        uniq_pair_clause[pair_key_directed(b,a)] = v;     // b→a
+    }
+
+    /* ----------   把集合拍成顺序表 / 可读表 / 映射表   -------------------- */
+    dir_keys.assign(criticalDir.begin(), criticalDir.end());   // 顺序可任意
+
+    crit_pairs.clear();
+    crit_pairs.reserve(dir_keys.size());
+    dir_key2cid.clear();
+
+    for (uint32_t cid = 0; cid < dir_keys.size(); ++cid) {
+        PairKey k = dir_keys[cid];
+        dir_key2cid[k] = cid;                               // 有向 key → cid
+        crit_pairs.emplace_back(key_hi(k), key_lo(k));      // (xi,xj)
+    }
+}
+
 /*
  * Read in the problem.
  */
-int temp_lit[MAX_VARS]; //the max length of a clause can be MAX_VARS
+
 int build_instance(char *filename)
 {
 	char    line[1000000];
@@ -231,7 +367,9 @@ int build_instance(char *filename)
 	}
 	for (v=1; v<=num_vars; ++v) //set boundary
 		var_lit[v][var_lit_count[v]].clause_num=-1;
-	
+    // build_critical_pairs(); // 构建 critical pairs
+
+	// build_critical_index(num_vars);
 	return 1;
 }
 
@@ -302,6 +440,7 @@ void print_solution()
      }
      cout<<"0"<<endl;
 }
+
 
 
 int verify_sol()
