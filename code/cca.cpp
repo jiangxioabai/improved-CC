@@ -7,7 +7,9 @@
 #include <unistd.h>
 #include <signal.h>
 #include <cstdlib>   // getenv, atoi
-
+// static long long g_sd_pick = 0;  // 记录 pick_var() 里 SD 模式命中 valuable/reversible 的次数
+// static long long g_sd_pick_val = 0;  // 命中 valuable 的次数
+// static long long g_sd_pick_rev = 0;  // 命中 reversible 的次数
 #ifndef MAX_TOPK_SD
 #define MAX_TOPK_SD 40          // Top-K 允许的最大上限
 #endif
@@ -16,6 +18,8 @@ void handle_sigterm(int signum)
 {
 	std::cerr << "Timeout reached!" << std::endl;
 	std::cerr << "Steps: " << step << ", Tries: " << tries << std::endl;
+    std::cerr << "sd_pick_val = " << g_sd_pick_val << std::endl;
+    std::cerr << "sd_pick_rev = " << g_sd_pick_rev << std::endl;
 	std::cout.flush();
 	exit(0);
 }
@@ -47,7 +51,8 @@ int pick_var()
 	/*SD (significant decreasing) mode, the level with aspiration*/
 /* SD (significant decreasing) mode, with Top-10 + critical/noncritical valuable check */
 {
-    const int TOPK = (g_topk_sd > MAX_TOPK_SD ? MAX_TOPK_SD : g_topk_sd);
+    // const int TOPK = (g_topk_sd > MAX_TOPK_SD ? MAX_TOPK_SD : g_topk_sd);
+    const int TOPK = MAX_TOPK_SD; 
     int cand_v[MAX_TOPK_SD];
     int cand_s[MAX_TOPK_SD];
 
@@ -318,6 +323,9 @@ int main(int argc, char* argv[])
     
     cout<<"c solveSteps = "<<tries<<" tries + "<<step<<" steps (each try has "<<max_flips<<" steps)."<<endl;
     cout<<"c solveTime = "<<comp_time<<endl;
+    cout << "c sd_pick_val = " << g_sd_pick_val << endl;
+    cout << "c sd_pick_rev = " << g_sd_pick_rev << endl;
+    cout << "c sd_pick     = " << g_sd_pick << endl;
 
 
     free_memory();
