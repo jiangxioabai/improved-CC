@@ -40,6 +40,8 @@ std::vector<uint32_t> active_LCQ, active_LCR;   // 更合适
 // 保存最近由 SD 或 Diversification 产生的翻转变量
 // const int MAX_RECENT = 10;                 // M，可随时调大/小
 // static std::deque<int> recent_vars;        // 只存 var 编号
+// 单参数控制 recent：k=窗口大小=扫描数；0=禁用
+
 
 
 
@@ -103,12 +105,8 @@ inline bool is_valuable_noncritical_pair(int xi,int xj)
 }
 
 
-// inline void push_recent_var(int v)
-// {
-//     recent_vars.push_back(v);
-//     if (recent_vars.size() > MAX_RECENT)
-//         recent_vars.pop_front();
-// }
+
+
 
 
 bool is_qualified_pairs(uint32_t cid)

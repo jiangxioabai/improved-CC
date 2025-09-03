@@ -14,12 +14,33 @@
 #define MAX_TOPK_SD 40          // Top-K 允许的最大上限
 #endif
 int g_topk_sd = 10;             // 运行时的 Top-K，默认 10
+int g_recent_k = 10;
+std::deque<int> recent_vars;        // 只存 var 编号
+// 顶部新增
+int g_tabu_tenure = 0;                // 默认关闭；用 env: TABU_TENURE=3 来启用
+static std::vector<int> tabu_until;   // tabu 过期步数（size = num_vars+1）
+static int best_unsat = INT_MAX;      // 历史最小未满足子句数（用于更激进的志向准则，可选）
+
+
+inline void push_recent_var(int v) {
+    if (g_recent_k <= 0) return;          // 关闭 recent 时不记录
+    if (v <= 0 || v > num_vars) return;
+    // 去重：若已存在，先移除旧位置
+    for (auto it = recent_vars.begin(); it != recent_vars.end(); ++it) {
+        if (*it == v) { recent_vars.erase(it); break; }
+    }
+    // 最新放最前
+    recent_vars.push_front(v);
+    // 裁到 g_recent_k
+    while ((int)recent_vars.size() > g_recent_k) recent_vars.pop_back();
+}
+
 void handle_sigterm(int signum)
 {
 	std::cerr << "Timeout reached!" << std::endl;
 	std::cerr << "Steps: " << step << ", Tries: " << tries << std::endl;
-    std::cerr << "sd_pick_val = " << g_sd_pick_val << std::endl;
-    std::cerr << "sd_pick_rev = " << g_sd_pick_rev << std::endl;
+    // std::cerr << "sd_pick_val = " << g_sd_pick_val << std::endl;
+    // std::cerr << "sd_pick_rev = " << g_sd_pick_rev << std::endl;
 	std::cout.flush();
 	exit(0);
 }
@@ -195,19 +216,72 @@ int pick_var()
 // 		return best_var;
 // 	}
 
-	// for (int rv : recent_vars)                       // rv = recent variable
-    //     for (int *p = var_neighbor[rv]; int nb = *p; ++p)
-    //         if (is_valuable_noncritical_pair(rv, nb))
-	// 		{    
-	// 			if (score[rv] + score[nb] > maxscore) {
-	// 				maxscore = score[rv] + score[nb];
-	// 				best_var   = nb;  // 直接返回第一个变量
-	// 			}
-	// 		}
-    // /* 若找到候选则返回；否则继续 LCQ/LCR 等后续分支 */
-    // if (best_var != 0)
-    //     return best_var;
-                     // 直接返回第一个变量
+/* ======================= Recent-Var 阶段 ======================= */
+if (g_recent_k > 0 && !recent_vars.empty()) {
+    int rv_best = 0, rv_best_score = INT_MIN;
+    bool rv_best_is_val = false;
+
+    // 扫描数 = min(g_recent_k, 当前队列长度)
+    int limit = std::min<int>(g_recent_k, (int)recent_vars.size());
+    int scanned = 0;
+
+    for (int rv : recent_vars) {
+        if (scanned >= limit) break;
+        ++scanned;
+
+        if (!LCP_vec[rv].empty()) {
+            // ---------- critical ----------
+            for (size_t t = 0; t < LCP_vec[rv].size(); ++t) {
+                uint32_t cid = LCP_vec[rv][t];
+                Result r = is_valuable_for_critical(cid);
+                if (!r.re) continue;
+                int s = r.value;
+                bool is_val = is_qualified_pairs(cid);
+
+                if (is_val) {
+                    if (!rv_best || !rv_best_is_val || s > rv_best_score ||
+                        (s == rv_best_score && time_stamp[rv] < time_stamp[rv_best])) {
+                        rv_best = rv; rv_best_score = s; rv_best_is_val = true;
+                    }
+                } else {
+                    if (!rv_best || (!rv_best_is_val && (s > rv_best_score ||
+                        (s == rv_best_score && time_stamp[rv] < time_stamp[rv_best])))) {
+                        rv_best = rv; rv_best_score = s; rv_best_is_val = false;
+                    }
+                }
+            }
+        } else {
+            // ---------- noncritical ----------
+            // for (int *p = var_neighbor[rv]; int nb = *p; ++p) {
+            for (int *p = var_neighbor[rv]; *p; ++p) {
+                int nb = *p;
+                if (!is_valuable_noncritical_pair(rv, nb)) continue;
+                auto it = uniq_pair_clause.find(pair_key_directed(rv, nb));
+                if (it == uniq_pair_clause.end()) continue;
+                uint32_t cc = it->second;
+
+                int s = score[rv] + score[nb];
+                if (sat_count[cc] == 1 && sat_var[cc] == rv) {
+                    // valuable
+                    if (!rv_best || !rv_best_is_val || s > rv_best_score ||
+                        (s == rv_best_score && time_stamp[rv] < time_stamp[rv_best])) {
+                        rv_best = rv; rv_best_score = s; rv_best_is_val = true;
+                    }
+                } else if (sat_count[cc] == 1 && sat_var[cc] == nb) {
+                    // reversible
+                    if (!rv_best || (!rv_best_is_val && (s > rv_best_score ||
+                        (s == rv_best_score && time_stamp[rv] < time_stamp[rv_best])))) {
+                        rv_best = rv; rv_best_score = s; rv_best_is_val = false;
+                    }
+                }
+            }
+        }
+    }
+
+    if (rv_best) return rv_best;  // valuable 优先，其次 reversible
+}
+/* ======================= Recent-Var 阶段结束 ======================= */
+
 
 	/**Diversification Mode**/
 
@@ -226,7 +300,7 @@ int pick_var()
 	}
 	// 记录 diversification 的时间
 
-    // push_recent_var(best_var);
+    push_recent_var(best_var);
 	return best_var;
 }
 
@@ -290,12 +364,17 @@ int main(int argc, char* argv[])
 	cout<<"c Algorithmic: Random seed = "<<seed<<endl;
     cout << "c critical pairs: " << crit_pairs.size() << endl;
     // 运行时读取 Top-K：仅环境变量 TOPK_SD（无命令行解析）
-    if (const char* env = std::getenv("TOPK_SD")) {
-        int k = std::atoi(env);
-        if (k >= 2 && k <= MAX_TOPK_SD) g_topk_sd = k;   // 夹在 [2, 40]
+    // if (const char* env = std::getenv("TOPK_SD")) {
+    //     int k = std::atoi(env);
+    //     if (k >= 2 && k <= MAX_TOPK_SD) g_topk_sd = k;   // 夹在 [2, 40]
+    // }
+
+    // 读取 RECENT_K（0=禁用 recent）
+    if (const char* s = std::getenv("RECENT_K")) {
+        int k = std::atoi(s);
+        if (k >= 0 && k <= 512) g_recent_k = k;
     }
-
-
+    cout << "c recent_k=" << g_recent_k << endl;
 	for (tries = 0; tries <= max_tries; tries++) 
 	{
 		settings();
@@ -323,9 +402,9 @@ int main(int argc, char* argv[])
     
     cout<<"c solveSteps = "<<tries<<" tries + "<<step<<" steps (each try has "<<max_flips<<" steps)."<<endl;
     cout<<"c solveTime = "<<comp_time<<endl;
-    cout << "c sd_pick_val = " << g_sd_pick_val << endl;
-    cout << "c sd_pick_rev = " << g_sd_pick_rev << endl;
-    cout << "c sd_pick     = " << g_sd_pick << endl;
+    // cout << "c sd_pick_val = " << g_sd_pick_val << endl;
+    // cout << "c sd_pick_rev = " << g_sd_pick_rev << endl;
+    // cout << "c sd_pick     = " << g_sd_pick << endl;
 
 
     free_memory();
