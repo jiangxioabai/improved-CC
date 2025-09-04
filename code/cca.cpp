@@ -13,7 +13,7 @@
 #ifndef MAX_TOPK_SD
 #define MAX_TOPK_SD 40          // Top-K 允许的最大上限
 #endif
-int g_topk_sd = 10;             // 运行时的 Top-K，默认 10
+int g_topk_sd = 4;             // 运行时的 Top-K，默认 4
 int g_recent_k = 10;
 std::deque<int> recent_vars;        // 只存 var 编号
 // 顶部新增
